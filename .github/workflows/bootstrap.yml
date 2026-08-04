@@ -5,6 +5,9 @@ on:
     paths:
       - ".bootstrap/source.part*"
       - ".github/workflows/bootstrap.yml"
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
 
 permissions:
   contents: write

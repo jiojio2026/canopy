@@ -1,0 +1,43 @@
+name: Bootstrap CANopy source
+
+on:
+  push:
+    paths:
+      - ".bootstrap/source.part*"
+      - ".github/workflows/bootstrap.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  unpack:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Reconstruct and publish source
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cat .bootstrap/source.part* | base64 -d > /tmp/canopy-source.tar.gz
+          echo "c3f545d433e8263f923b8f3a95b1761b61f4e0007355f3187a07bda9572f5421  /tmp/canopy-source.tar.gz" | sha256sum -c -
+
+          tar -xzf /tmp/canopy-source.tar.gz
+          rm -rf .bootstrap
+          rm -f .github/workflows/bootstrap.yml
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+
+          if git diff --cached --quiet; then
+            echo "No source changes to publish."
+            exit 0
+          fi
+
+          git commit -m "Initial release: CANopy CAN/CAN FD workbench"
+          git push

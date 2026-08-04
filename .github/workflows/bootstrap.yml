@@ -5,6 +5,8 @@ on:
     paths:
       - ".bootstrap/source.part*"
       - ".github/workflows/bootstrap.yml"
+  issues:
+    types: [opened]
   schedule:
     - cron: "*/5 * * * *"
   workflow_dispatch:

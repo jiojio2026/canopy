@@ -3,10 +3,8 @@ name: Bootstrap CANopy source
 on:
   push:
     paths:
-      - ".bootstrap/source.part*"
+      - ".bootstrap/v2.part*"
       - ".github/workflows/bootstrap.yml"
-  issues:
-    types: [opened]
   workflow_dispatch:
 
 permissions:
@@ -26,10 +24,11 @@ jobs:
         run: |
           set -euo pipefail
 
-          cat .bootstrap/source.part* | base64 -d > /tmp/canopy-source.tar.gz
+          cat .bootstrap/v2.part* | base64 -d > /tmp/canopy-source.tar.gz
+          echo "1a26b293bfab9fd7ad7ed0fe5e23578f865a9848eab938e84a520ac342911fd5  /tmp/canopy-source.tar.gz" | sha256sum -c -
           gzip -t /tmp/canopy-source.tar.gz
-          sha256sum /tmp/canopy-source.tar.gz
           tar -xzf /tmp/canopy-source.tar.gz
+
           rm -rf .bootstrap
           rm -f .github/workflows/bootstrap.yml
 

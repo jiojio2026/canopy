@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.log
+data/*.json
+data/*.csv
+vendor/*.so
+vendor/**/*.so
+vendor/.cache/
+vendor/.extract/
+vendor/zlgcan_sdk/
+vendor/zlgcan_env.sh

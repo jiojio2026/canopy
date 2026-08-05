@@ -1,0 +1,3 @@
+# ZLG USBCANFD-100U/200U from the supplied Linux x86-64 SDK package.
+# Package readme: VID:PID 3068:0009. MODE=0666 matches the vendor's example rule.
+SUBSYSTEM=="usb", ATTR{idVendor}=="3068", ATTR{idProduct}=="0009", MODE="0666", TAG+="uaccess"

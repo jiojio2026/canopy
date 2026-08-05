@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>CANopy</title>
+  <link rel="stylesheet" href="/static/style.css?v=0.1.0">
+</head>
+<body>
+<header>
+  <div><h1>CANopy</h1><p>Linux x86-64 · ZLG USBCANFD-200U · VCI_* ABI · v0.1.0</p></div>
+  <div class="status"><span id="deviceBadge" class="badge off">未连接</span><button id="openDeviceBtn" onclick="openDevice()">打开设备</button><button id="closeDeviceBtn" class="secondary" onclick="closeDevice()">关闭</button></div>
+</header>
+<nav>
+  <button class="tab active" data-tab="dashboard">总览</button>
+  <button class="tab" data-tab="messages">报文与仿真节点</button>
+  <button class="tab" data-tab="trace">Trace</button>
+  <button class="tab" data-tab="advanced">硬件高级特性</button>
+  <button class="tab" data-tab="lin">LIN</button>
+</nav>
+<main>
+<section id="dashboard" class="panel active">
+  <div class="grid two">
+    <article><h2>设备</h2><div id="deviceInfo" class="kv"></div><div id="deviceAction" class="operation idle"><b>设备操作状态</b><span>等待操作</span></div><div class="actions"><button onclick="loadStatus()">刷新状态</button><button class="secondary" onclick="runPreflight()">连接诊断</button><button class="secondary" onclick="showConfig()">设备配置</button></div><pre id="preflightResult" class="diagnostic-output" hidden></pre></article>
+    <article><h2>双通道总线负载（已观察报文估算）</h2><div id="metrics"></div></article>
+  </div>
+  <div class="grid two" id="channelCards"></div>
+</section>
+
+<section id="messages" class="panel">
+  <article>
+    <div class="section-head"><h2>添加/编辑报文</h2><button type="button" class="secondary" onclick="resetMessageForm()">新建</button></div>
+    <form id="messageForm" class="form-grid">
+      <input type="hidden" id="msgKey">
+      <label>名称<input id="msgName" value="测试报文"></label>
+      <label>仿真节点<input id="msgNode" value="默认节点"></label>
+      <label>通道<select id="msgChannel"><option value="0">CAN0</option><option value="1">CAN1</option></select></label>
+      <label>帧类型<select id="msgKind"><option value="can">Classic CAN</option><option value="canfd">CAN FD</option></select></label>
+      <label>CAN ID<input id="msgId" value="0x123"></label>
+      <label>数据 HEX<input id="msgData" value="01 02 03 04"></label>
+      <label><input type="checkbox" id="msgExtended">扩展帧</label>
+      <label><input type="checkbox" id="msgRemote">远程帧</label>
+      <label><input type="checkbox" id="msgBrs">BRS</label>
+      <label><input type="checkbox" id="msgEsi">ESI</label>
+      <label>发送方式<select id="msgTxMode"><option value="normal">失败自动重发</option><option value="once">单次不重发</option><option value="self">自发自收</option><option value="self_once">单次自发自收</option></select></label>
+      <label>调度器<select id="msgScheduler"><option value="software">Linux 软件周期</option><option value="hardware">200U 硬件周期</option></select></label>
+      <label>周期 ms<input id="msgPeriod" type="number" value="100" min="0.1" step="0.1"></label>
+      <label>硬件槽位 0–7<input id="msgHwIndex" type="number" min="0" max="7" value="0"></label>
+      <label>硬件启动延时 ms<input id="msgHwDelay" type="number" min="0" value="0"></label>
+      <label><input type="checkbox" id="msgEnabled">启用周期</label>
+      <button type="submit">保存报文</button>
+    </form>
+    <p class="hint">CAN FD 有效数据长度：0–8、12、16、20、24、32、48、64 字节。硬件周期报文在打开设备时自动重新下发。</p>
+  </article>
+  <article><h2>报文库</h2><div id="nodeActions"></div><div class="table-wrap"><table><thead><tr><th>节点/名称</th><th>通道</th><th>ID</th><th>类型</th><th>数据</th><th>周期</th><th>操作</th></tr></thead><tbody id="messageRows"></tbody></table></div></article>
+</section>
+
+<section id="trace" class="panel">
+  <article>
+    <div class="section-head"><h2>实时 Trace</h2><div><select id="traceMode" onchange="refreshTrace()"><option value="latest">最新值（稳定内存）</option><option value="scroll">滚动 Trace</option></select><button onclick="refreshTrace()">刷新</button><button class="secondary" onclick="clearTrace()">清空</button><a class="button secondary" href="/api/trace.csv">导出 CSV</a></div></div>
+    <div class="table-wrap trace"><table><thead><tr><th>Seq</th><th>时间</th><th>方向</th><th>通道</th><th>类型</th><th>ID</th><th>标志</th><th>数据</th><th>Hz/周期</th></tr></thead><tbody id="traceRows"></tbody></table></div>
+  </article>
+</section>
+
+<section id="advanced" class="panel">
+  <div class="grid two">
+    <article><h2>硬件 ID 过滤（每通道最多 64 条）</h2><label>通道<select id="filterChannel"><option value="0">CAN0</option><option value="1">CAN1</option></select></label><label>JSON 数组<textarea id="filterJson">[{"extended":false,"start_id":256,"end_id":511}]</textarea></label><button onclick="applyFilters()">应用过滤器</button><p class="hint">空数组表示接收全部。应用时执行 clear → mode/start/end → ack。</p></article>
+    <article><h2>硬件发送队列</h2><label>JSON 数组<textarea id="queueJson">[{"channel":0,"frame_kind":"canfd","can_id":291,"extended":false,"remote":false,"brs":true,"esi":false,"tx_mode":"normal","data":[1,2,3,4],"delay_ms":10,"precision_100us":false}]</textarea></label><button onclick="sendQueue()">写入队列</button><button class="secondary" onclick="clearQueue(0)">清空 CAN0 队列</button><button class="secondary" onclick="clearQueue(1)">清空 CAN1 队列</button><p class="hint">1 ms 精度最大延时 65535 ms；0.1 ms 精度最大延时 6553.5 ms。</p></article>
+    <article><h2>原始 VCI Reference</h2><label>路径<input id="propPath" value="0/tx_queue_space"></label><label>值<input id="propValue" value="0"></label><button onclick="setProp()">SetReference</button><button class="secondary" onclick="getProp()">GetReference</button><pre id="propResult"></pre><p class="hint">格式：0/0x18、0/resistance、1/tx_queue_space。过滤和定时发送结构体请使用专用页面。</p></article>
+    <article><h2>能力探测</h2><pre id="capability"></pre></article>
+  </div>
+</section>
+
+<section id="lin" class="panel">
+  <div class="grid two">
+    <article><h2>LIN 发送</h2><label>通道<select id="linChannel"><option value="0">LIN0</option><option value="1">LIN1</option></select></label><label>PID<input id="linPid" value="0x12"></label><label>数据<input id="linData" value="01 02 03"></label><label>校验<select id="linChecksum"><option value="default">启动配置</option><option value="classic">经典</option><option value="enhanced">增强</option></select></label><button onclick="linSend()">发送</button></article>
+    <article><h2>LIN Publish/Subscribe</h2><label>Subscribe PIDs JSON<textarea id="linSubJson">[18,19]</textarea></label><button onclick="linSubscribe()">应用 Subscribe</button><label>Publish Frames JSON<textarea id="linPubJson">[{"channel":0,"pid":18,"data":[1,2,3],"checksum":"enhanced","direction":"publish"}]</textarea></label><button onclick="linPublish()">应用 Publish</button><p class="hint">当前 Linux VCI_* 动态库未公开 LIN Schedule API；需要时使用软件调度。</p></article>
+  </div>
+</section>
+</main>
+
+<dialog id="configDialog">
+  <form method="dialog" id="configForm">
+    <div class="section-head"><h2>设备配置</h2><button class="secondary">关闭</button></div>
+    <div class="config-head">
+      <label>驱动<select id="cfgDriver"><option value="zlgcan">USBCANFD Linux VCI 实机</option><option value="mock">Mock</option></select></label>
+      <label>设备类型<input id="cfgDeviceType" type="number" value="33"></label>
+      <label>设备索引<input id="cfgDeviceIndex" type="number" min="0" value="0"></label>
+    </div>
+    <div class="grid two" id="canConfigCards"></div>
+    <h3>LIN 通道</h3><div class="grid two" id="linConfigCards"></div>
+    <details><summary>高级：完整配置 JSON</summary><label><textarea id="configJson" class="large"></textarea></label><button type="button" class="secondary" onclick="loadConfigFormFromJson()">从 JSON 更新表单</button></details>
+    <div class="dialog-actions"><button type="button" class="secondary" onclick="copyCan0ToCan1()">复制 CAN0 → CAN1</button><button type="button" onclick="saveConfig()">保存配置</button></div>
+    <p class="hint">你上传的 Linux x86-64 SDK Demo 使用设备类型 33，本工具默认按 33 打开；仅在失败时兼容尝试 41。内置 120Ω 只在该通道位于总线物理端点时开启。</p>
+  </form>
+</dialog>
+<div id="toast"></div><script src="/static/app.js?v=0.1.0"></script>
+</body></html>

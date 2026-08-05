@@ -70,13 +70,9 @@ Start CANopy:
 ./run_real.sh
 ```
 
-Open:
+Open `http://127.0.0.1:8000`.
 
-```text
-http://127.0.0.1:8000
-```
-
-To access it from another computer on the LAN:
+For LAN access:
 
 ```bash
 CAN_WEB_HOST=0.0.0.0 ./run_real.sh
@@ -89,8 +85,6 @@ Then open `http://<linux-host-ip>:8000`.
 ```bash
 ./run_mock.sh
 ```
-
-Mock mode exercises the web UI and APIs without opening USB hardware.
 
 ## Opening-device diagnostics
 
@@ -120,7 +114,7 @@ source vendor/zlgcan_env.sh
 python3 tools/check_environment.py
 ```
 
-Project layout:
+## Project layout
 
 ```text
 app/                    FastAPI backend and browser UI
@@ -132,7 +126,7 @@ vendor/packages/        Original SDK ZIP package
 data/                    Runtime configuration and captures
 ```
 
-## Current validation boundary
+## Validation boundary
 
 Automated tests cover model validation, bounded storage, the Mock backend, VCI ABI structure sizes, queue encoding and loading the bundled x86-64 vendor library. A behavior-compatible test library covers open/init/start/close and timeout paths.
 

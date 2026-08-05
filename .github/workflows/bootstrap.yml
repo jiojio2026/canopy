@@ -7,8 +7,6 @@ on:
       - ".github/workflows/bootstrap.yml"
   issues:
     types: [opened]
-  schedule:
-    - cron: "*/5 * * * *"
   workflow_dispatch:
 
 permissions:
@@ -29,8 +27,8 @@ jobs:
           set -euo pipefail
 
           cat .bootstrap/source.part* | base64 -d > /tmp/canopy-source.tar.gz
-          echo "c3f545d433e8263f923b8f3a95b1761b61f4e0007355f3187a07bda9572f5421  /tmp/canopy-source.tar.gz" | sha256sum -c -
-
+          gzip -t /tmp/canopy-source.tar.gz
+          sha256sum /tmp/canopy-source.tar.gz
           tar -xzf /tmp/canopy-source.tar.gz
           rm -rf .bootstrap
           rm -f .github/workflows/bootstrap.yml

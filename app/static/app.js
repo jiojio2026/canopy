@@ -291,8 +291,11 @@ async function refreshTrace() {
     renderTrace(rows); latestDirty=false;
   } catch(e) { toast(e.message,true); }
 }
+const traceClock = new Intl.DateTimeFormat(undefined, {
+  hour: '2-digit', minute: '2-digit', second: '2-digit', fractionalSecondDigits: 3,
+});
 function renderTrace(rows) {
-  $('#traceRows').innerHTML=rows.slice(-1000).reverse().map(f => `<tr><td>${f.seq}</td><td>${new Date(Number(f.timestamp_ns)/1e6).toLocaleTimeString()}</td><td>${esc(f.direction)}</td><td>${esc(f.frame_kind==='lin'?'LIN'+f.channel:'CAN'+f.channel)}</td><td>${esc(f.frame_kind)}</td><td>${hex(f.can_id)}</td><td>${[f.extended?'EXT':'',f.remote?'RTR':'',f.brs?'BRS':'',f.esi?'ESI':''].filter(Boolean).join(' ')}</td><td>${esc(f.data_hex || (f.data||[]).map(x => x.toString(16).padStart(2,'0')).join(' ').toUpperCase())}</td><td>${f.frequency_hz ? `${Number(f.frequency_hz).toFixed(1)} Hz / ${Number(f.period_ms).toFixed(2)} ms` : ''}</td></tr>`).join('');
+  $('#traceRows').innerHTML=rows.slice(-1000).reverse().map(f => `<tr><td>${f.seq}</td><td>${traceClock.format(Math.floor(Number(f.timestamp_ns)/1e6))}</td><td>${esc(f.direction)}</td><td>${esc(f.frame_kind==='lin'?'LIN'+f.channel:'CAN'+f.channel)}</td><td>${esc(f.frame_kind)}</td><td>${hex(f.can_id)}</td><td>${[f.extended?'EXT':'',f.remote?'RTR':'',f.brs?'BRS':'',f.esi?'ESI':''].filter(Boolean).join(' ')}</td><td>${esc(f.data_hex || (f.data||[]).map(x => x.toString(16).padStart(2,'0')).join(' ').toUpperCase())}</td><td>${f.frequency_hz ? `${Number(f.frequency_hz).toFixed(1)} Hz / ${Number(f.period_ms).toFixed(2)} ms` : ''}</td></tr>`).join('');
 }
 function scheduleScrollRender() {
   if (renderPending) return; renderPending=true;

@@ -93,8 +93,7 @@ install_dir() {
   mkdir -p "$INSTALL_DIR"
   cp -aL "$core" "$INSTALL_DIR/libusbcanfd.so"
 
-  # Only copy same-architecture optional libraries. The official x64 ZIP
-  # currently contains a misleading ARM64 file named libusb-1.0.so; never copy it.
+  # Keep using the system libusb and only copy the optional ZLG UDS library.
   if [[ -s "$source_dir/libzuds.so" ]] && file -b "$source_dir/libzuds.so" | grep -Eqi "$ARCH_PATTERN"; then
     cp -aL "$source_dir/libzuds.so" "$INSTALL_DIR/libzuds.so"
   fi
@@ -102,8 +101,14 @@ install_dir() {
     [[ -f "$source_dir/$f" ]] && cp -a "$source_dir/$f" "$INSTALL_DIR/$f"
   done
 
-  # The shared object advertises this SONAME. Keep a local link for vendor demos.
-  ln -sfn libusbcanfd.so "$INSTALL_DIR/libusbcanfd.so.1.0.14"
+  # The SDK ZIP can contain a stale symlink. Use the library's actual SONAME.
+  if command -v readelf >/dev/null 2>&1; then
+    local soname
+    soname="$(LC_ALL=C readelf -d "$core" | sed -n 's/.*(SONAME).*\[\(libusbcanfd\.so\.[0-9.]*\)\].*/\1/p')"
+    if [[ -n "$soname" ]]; then
+      ln -sfn libusbcanfd.so "$INSTALL_DIR/$soname"
+    fi
+  fi
   write_env
   check_so "$INSTALL_DIR/libusbcanfd.so"
 
@@ -117,7 +122,7 @@ install_dir() {
   fi
 
   log "官方 SDK 已启用：$INSTALL_DIR/libusbcanfd.so"
-  log "未复制包内 libusb-1.0.so：该文件是 ARM64，x86-64 主机应使用系统 libusb-1.0.so.0。"
+  log "使用系统 libusb-1.0.so.0。"
   log "下一步：source vendor/zlgcan_env.sh && python3 tools/check_environment.py"
 }
 
@@ -140,7 +145,7 @@ if [[ $# -eq 0 ]]; then
   if [[ -s "$INSTALL_DIR/libusbcanfd.so" ]]; then
     check_so "$INSTALL_DIR/libusbcanfd.so"
     write_env
-    log "使用项目内置的官方 Linux SDK 1.0.14。"
+    log "使用已安装的官方 Linux SDK。"
   elif [[ -f "$BUNDLED_ZIP" ]]; then
     install_zip "$BUNDLED_ZIP"
   else

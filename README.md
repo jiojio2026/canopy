@@ -30,12 +30,14 @@ CANopy turns a Linux computer and a ZLG USBCANFD-200U into a local web CAN tool.
 | Host OS | Linux x86-64 |
 | Adapter | ZLG USBCANFD-200U |
 | USB ID | `3068:0009` |
-| Vendor library | `libusbcanfd.so` 1.0.14 |
+| Vendor library | `libusbcanfd.so` 1.0.15 |
 | Python | 3.8+ |
 
-The repository includes the x86-64 SDK package supplied for this adapter. The vendor binary files are not covered by CANopy's MIT license; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+Install the official x86-64 SDK separately. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for vendor licensing information.
 
 ## Quick start
+
+Download the [official ZLG Linux x86-64 SDK 1.0.15](https://manual.zlg.cn/server/index.php?s=/api/attachment/visitFile/sign/f76024fda59e77e1b403127ee9764990) and save it as `usbcanfd_libusb_x64_1.0.15_260827.zip` in your Downloads directory.
 
 ```bash
 git clone https://github.com/jiojio2026/canopy.git
@@ -43,14 +45,14 @@ cd canopy
 
 sudo apt update
 sudo apt install -y \
-  python3 python3-venv usbutils file \
+  python3 python3-venv usbutils file unzip binutils \
   libusb-1.0-0 libudev1 libcap2
 
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 
-./tools/install_zlg_sdk.sh
+./tools/install_zlg_sdk.sh "$HOME/Downloads/usbcanfd_libusb_x64_1.0.15_260827.zip"
 sudo ./tools/install_udev_rule.sh
 ```
 
@@ -128,7 +130,7 @@ data/                    Runtime configuration and captures
 
 ## Validation boundary
 
-Automated tests cover model validation, bounded storage, the Mock backend, VCI ABI structure sizes, queue encoding and loading the bundled x86-64 vendor library. A behavior-compatible test library covers open/init/start/close and timeout paths.
+Automated tests cover model validation, bounded storage, the Mock backend, VCI ABI structure sizes, queue encoding and loading the installed x86-64 vendor library. A behavior-compatible test library covers open/init/start/close and timeout paths.
 
 Real bus behavior—especially electrical termination, bus-off recovery, high-load loss testing, hardware periodic accuracy, queue timing and LIN—must still be verified with physical hardware and a correctly terminated CAN network.
 

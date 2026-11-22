@@ -34,6 +34,8 @@ STATUS_OK = 1
 ZCAN_USBCANFD_LINUX = 33
 ZCAN_USBCANFD_200U_ENUM = 41
 CLOCK_HZ = 60_000_000
+CAN_RX_TICK_US = 100
+CAN_RX_COUNTER_MASK = (1 << 32) - 1
 USB_VENDOR_ID = "3068"
 USB_PRODUCT_ID = "0009"
 
@@ -474,6 +476,7 @@ class ZlgCanDriver(CanDriver):
         self.lin_channels: Dict[int, bool] = {}
         self.stop_evt = threading.Event()
         self.rx_threads: List[threading.Thread] = []
+        self.can_rx_clock: Dict[int, Tuple[int, int]] = {}
         self.lock = threading.RLock()
         self.capability_results: Dict[str, Any] = {}
         self.periodic_slots: Dict[int, Dict[int, SavedMessage]] = {0: {}, 1: {}}
@@ -775,6 +778,7 @@ class ZlgCanDriver(CanDriver):
         self.channels = {}
         self.lin_channels = {}
         self.rx_threads = []
+        self.can_rx_clock.clear()
 
     def _rx_loop(self, channel: int) -> None:
         while not self.stop_evt.wait(0.001):
@@ -874,10 +878,25 @@ class ZlgCanDriver(CanDriver):
         channel = int(msg.channel)
         if channel not in (0, 1):
             channel = fallback_channel
+        ticks = int(msg.timestamp)
+        previous = self.can_rx_clock.get(channel)
+        if previous is None:
+            timestamp_ns = time.time_ns()
+            self.can_rx_clock[channel] = (ticks, timestamp_ns)
+        else:
+            previous_ticks, previous_ns = previous
+            delta = (ticks - previous_ticks) & CAN_RX_COUNTER_MASK
+            # Classic CAN and CAN FD are drained separately, so a frame can
+            # arrive here slightly out of order. Unwrap without moving back.
+            if delta > CAN_RX_COUNTER_MASK // 2:
+                delta -= CAN_RX_COUNTER_MASK + 1
+            timestamp_ns = previous_ns + delta * CAN_RX_TICK_US * 1000
+            if delta > 0:
+                self.can_rx_clock[channel] = (ticks, timestamp_ns)
         self.on_frame(
             {
-                "timestamp_ns": int(msg.timestamp) * 1000,
-                "device_timestamp_us": int(msg.timestamp),
+                "timestamp_ns": timestamp_ns,
+                "device_timestamp_us": ticks * CAN_RX_TICK_US,
                 "direction": "tx" if flags & FLAG_TX else "rx",
                 "channel": channel,
                 "frame_kind": "canfd" if fd else "can",
@@ -1016,6 +1035,7 @@ class ZlgCanDriver(CanDriver):
             raise DriverError(f"VCI_ResetCAN CAN{channel} 失败")
         if int(self.lib.VCI_StartCAN(self.dev_type, self.dev_index, channel)) != STATUS_OK:
             raise DriverError(f"VCI_StartCAN CAN{channel} 失败")
+        self.can_rx_clock.pop(channel, None)
 
     def _queue_uint(self, channel: int, command: int) -> Optional[int]:
         if not hasattr(self.lib, "VCI_GetReference"):

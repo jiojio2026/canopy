@@ -10,12 +10,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y libusb-1.0-0 libudev1 libcap2
+        run: sudo apt-get update && sudo apt-get install -y file unzip binutils libusb-1.0-0 libudev1 libcap2
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - name: Install Python dependencies
         run: pip install -r requirements.txt
+      - name: Install ZLG SDK for ABI tests
+        run: |
+          curl --fail --location --retry 3 'https://manual.zlg.cn/server/index.php?s=/api/attachment/visitFile/sign/f76024fda59e77e1b403127ee9764990' --output /tmp/zlg-sdk.zip
+          echo 'd8da3bd74c96e4e6b1e976b65d4c30aafc3790a80745a4fbada934bfe8ab5d04  /tmp/zlg-sdk.zip' | sha256sum --check
+          ./tools/install_zlg_sdk.sh /tmp/zlg-sdk.zip
       - name: Python compile check
         run: python -m compileall -q app tools tests
       - name: Tests

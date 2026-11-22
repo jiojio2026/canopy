@@ -1,5 +1,5 @@
 from __future__ import annotations
-import os, asyncio, logging, time, uuid
+import os, asyncio, json, logging, time, uuid
 from pathlib import Path
 from typing import List
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Query
@@ -7,6 +7,7 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from app.models import *
 from app.store import TraceStore, JsonState
+from app.signal_decoder import SignalDefinition, SignalPreview, SignalRegistry, decode_signal
 from app.scheduler import SoftwareScheduler
 from app.drivers.base import DriverError
 from app.drivers.mock import MockDriver
@@ -15,6 +16,10 @@ from app.drivers.zlgcan import ZlgCanDriver, probe_runtime_environment
 logging.basicConfig(level=os.getenv("LOG_LEVEL","INFO")); log=logging.getLogger(__name__)
 ROOT=Path(__file__).resolve().parent; DATA=os.getenv("CAN_WEB_DATA",str(ROOT.parent/"data"))
 state=JsonState(DATA); trace=TraceStore(); subscribers=set(); event_loop=None; live_queue=None; broadcaster_task=None; live_dropped=0
+try: signal_registry=SignalRegistry(state.load("signals.json", []))
+except Exception:
+    log.exception("无法载入 signals.json，信号定义本次运行不可用")
+    signal_registry=SignalRegistry()
 
 def default_config():
     return DeviceConfig(driver="mock" if os.getenv("MOCK_CAN")=="1" else "zlgcan")
@@ -41,7 +46,7 @@ def enqueue_live(frame):
 driver=MockDriver(frame_callback) if config.driver=="mock" or os.getenv("MOCK_CAN")=="1" else ZlgCanDriver(frame_callback)
 scheduler=SoftwareScheduler(lambda frame: send_frame(frame) if driver.status().get("opened",False) else 0)
 scheduler.sync(messages)
-app=FastAPI(title="CANopy",version="0.2.0")
+app=FastAPI(title="CANopy",version="0.3.0")
 app.mount("/static",StaticFiles(directory=str(ROOT/"static")),name="static")
 
 @app.middleware("http")
@@ -68,7 +73,7 @@ async def shutdown():
 @app.get("/")
 def index(): return FileResponse(ROOT/"static/index.html")
 @app.get("/api/version")
-def version(): return ok({"version":"0.2.0","sdk":"usbcanfd_libusb_x64_1.0.15_260827"})
+def version(): return ok({"version":"0.3.0","sdk":"usbcanfd_libusb_x64_1.0.15_260827"})
 
 def ok(data=None,message=""): return APIResult(ok=True,data=data,message=message).dict()
 def fail(e):
@@ -248,8 +253,35 @@ def lin_sched(cfg:LinSchedule):
     try: return ok(driver.lin_schedule(cfg))
     except Exception as e: fail(e)
 
+@app.get("/api/signals")
+def list_signals():
+    return ok(signal_registry.list())
+
+@app.get("/api/signals/export")
+def export_signals():
+    body=json.dumps(signal_registry.list(),ensure_ascii=False,indent=2).encode("utf-8")
+    return Response(body,media_type="application/json",headers={"Content-Disposition":"attachment; filename=canopy-signals.json"})
+
+@app.post("/api/signals")
+def save_signal(definition:SignalDefinition):
+    try: return ok(signal_registry.save(definition,state))
+    except Exception as e: fail(e)
+
+@app.delete("/api/signals/{key}")
+def delete_signal(key:str):
+    try:
+        signal_registry.remove(key,state)
+        return ok()
+    except KeyError: raise HTTPException(404,"信号不存在")
+    except Exception as e: fail(e)
+
+@app.post("/api/signals/preview")
+def preview_signal(payload:SignalPreview):
+    return ok(decode_signal(payload.signal,payload.data))
+
 @app.get("/api/trace")
-def get_trace(mode:str="latest",limit:int=Query(1000,ge=1,le=5000)): return ok(trace.snapshot(mode,limit))
+def get_trace(mode:str="latest",limit:int=Query(1000,ge=1,le=5000)):
+    return ok([signal_registry.enrich(f) for f in trace.snapshot(mode,limit)])
 @app.delete("/api/trace")
 def clear_trace(): trace.clear(); return ok()
 @app.get("/api/trace.csv")
@@ -266,7 +298,7 @@ async def broadcast_loop():
             try: batch.append(live_queue.get_nowait())
             except asyncio.QueueEmpty: break
         if not subscribers: continue
-        payload={"type":"frames","frames":batch,"dropped":live_dropped}
+        payload={"type":"frames","frames":[signal_registry.enrich(f) for f in batch],"dropped":live_dropped}
         dead=[]
         for ws in list(subscribers):
             try: await asyncio.wait_for(ws.send_json(payload),timeout=.2)

@@ -37,6 +37,9 @@ def test_all_views_and_device_controls_remain_accessible():
         "filterJson", "queueJson", "propPath", "propResult",
         "linChannel", "linSubJson", "linPubJson", "configDialog",
         "canConfigCards", "linConfigCards", "pageName",
+        "signalContextMenu", "signalLibraryDialog", "signalEditorDialog",
+        "signalLibraryRows", "signalEditorForm", "signalBitMap",
+        "signalPreview", "signalInspectorRows", "signalCanId",
     )
     assert set(required) <= set(page.ids)
 
@@ -52,6 +55,18 @@ def test_sidebar_responsiveness_and_trace_bound():
 
 
 def test_version_alignment():
-    assert "v0.2.0" in HTML
-    assert "/static/style.css?v=0.2.0" in HTML
-    assert "/static/app.js?v=0.2.0" in HTML
+    assert "v0.3.0" in HTML
+    assert "/static/style.css?v=0.3.0" in HTML
+    assert "/static/app.js?v=0.3.0" in HTML
+
+
+def test_signal_editor_actions_and_menu_exist():
+    for token in ("openSignalLibrary()", "newSignalFromContext()",
+                  'id="signalByteOrder"', 'id="signalBitLength"',
+                  'id="signalStartBit"', 'id="signalValueType"',
+                  'id="signalFactor"', 'id="signalOffset"'):
+        assert token in HTML
+    for token in ("function initializeSignalUI()", "function startSignalEditor(",
+                  "function saveSignalDefinition(", "function decodedSignalSummary(",
+                  "function updateSignalBitMap("):
+        assert token in JS

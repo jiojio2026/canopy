@@ -96,5 +96,29 @@ test('Rendered Trace row count is bounded', () => {
     frame_kind: 'can', channel: 0, can_id: i, data_hex: '',
   }));
   h.ctx.renderTrace(frames);
-  assert.equal((h.elements.get('#traceRows').innerHTML.match(/<tr>/g) || []).length, 1000);
+  assert.equal((h.elements.get('#traceRows').innerHTML.match(/<tr\b/g) || []).length, 1000);
+});
+
+test('Decoded signal summary is escaped and rendered alongside raw payload', () => {
+  const h = harness();
+  h.ctx.renderTrace([{
+    seq: 42, timestamp_ns: 1800000000000000000, direction: 'rx',
+    frame_kind: 'canfd', channel: 1, can_id: 0x706, data: [0x05, 0x05],
+    decoded_signals: [{name: '<script>alert(1)</script>', value: 12.85, raw: '1285', unit: 'rad/s'}],
+  }]);
+  const html = h.elements.get('#traceRows').innerHTML;
+  assert.ok(html.includes('0x706'));
+  assert.ok(html.includes('05 05'));
+  assert.ok(html.includes('&lt;script&gt;'));
+  assert.ok(!html.includes('<script>'));
+  assert.ok(html.includes('12.85'));
+  assert.equal(h.elements.get('#traceVisibleCount').textContent, '1');
+});
+
+test('Bit positions follow Intel and Motorola conventions', () => {
+  const h = harness();
+  const intel = Array.from(h.ctx.signalBitIndices(4, 12, 'little_endian'));
+  const motorola = Array.from(h.ctx.signalBitIndices(7, 16, 'big_endian'));
+  assert.deepEqual(intel, Array.from({length: 12}, (_, i) => i + 4));
+  assert.deepEqual(motorola, [7,6,5,4,3,2,1,0,15,14,13,12,11,10,9,8]);
 });

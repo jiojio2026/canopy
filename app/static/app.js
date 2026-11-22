@@ -3,6 +3,13 @@ let config = null;
 let messages = [];
 let ws = null;
 let liveFrames = [];
+let lastTraceRows = [];
+let signalDefinitions = [];
+let selectedSignalFrame = null;
+let signalContextFrame = null;
+let signalEditorFrame = null;
+let signalPreviewTimer = null;
+let signalPreviewGeneration = 0;
 let renderPending = false;
 let latestDirty = false;
 let traceRefreshing = false;
@@ -337,13 +344,325 @@ async function refreshTrace(force = true) {
     }
   }
 }
+
+function signalIdentity(frame) {
+  if (!frame) return '';
+  return [frame.channel, frame.frame_kind, frame.can_id, Boolean(frame.extended)].join(':');
+}
+function signalMatches(frame, definition) {
+  return signalIdentity(frame) === signalIdentity(definition);
+}
+function formatSignalNumber(value) {
+  if (value === null || value === undefined || !Number.isFinite(Number(value))) return '—';
+  return Number(value).toLocaleString(undefined, {maximumFractionDigits: 6});
+}
+function decodedSignalSummary(frame) {
+  const signals = frame.decoded_signals || [];
+  if (!signals.length) return '<span class="signal-summary-empty">—</span>';
+  const summary = signals.slice(0, 2).map(s => {
+    const value = s.error ? '—' : formatSignalNumber(s.value);
+    return esc(s.name) + '=' + esc(value) + (s.unit ? ' ' + esc(s.unit) : '');
+  }).join(' · ');
+  return summary + (signals.length > 2 ? ' <span class="signal-summary-empty">+' + (signals.length - 2) + '</span>' : '');
+}
+function selectTraceFrame(frame) {
+  if (!frame) return;
+  selectedSignalFrame = frame;
+  $('#signalInspector').hidden = false;
+  renderSignalInspector();
+}
+function hideSignalInspector() {
+  $('#signalInspector').hidden = true;
+  selectedSignalFrame = null;
+}
+function renderSignalInspector() {
+  if (!selectedSignalFrame || $('#signalInspector').hidden) return;
+  const frame = selectedSignalFrame;
+  $('#signalInspectorTitle').textContent = 'CAN' + frame.channel + ' / ' + hex(frame.can_id);
+  $('#signalInspectorMeta').textContent =
+    (frame.frame_kind === 'canfd' ? 'CAN FD' : 'Classic CAN') +
+    (frame.extended ? ' / 扩展帧' : ' / 标准帧') +
+    ' · Seq ' + frame.seq + ' · 仅显示用户定义的信号';
+  const signals = frame.decoded_signals || [];
+  const definitions = signalDefinitions.filter(d => signalMatches(frame, d));
+  $('#signalInspectorRows').innerHTML = signals.length
+    ? signals.map(s => '<div class="signal-value"><div class="signal-name">' + esc(s.name) + '</div>' +
+      '<div class="signal-number">' + (s.error ? '—' : esc(formatSignalNumber(s.value))) +
+      ' <small>' + esc(s.unit) + '</small></div><div class="signal-raw">' +
+      esc(s.error || 'Raw: ' + (s.raw ?? '—') + ' / ' + (s.raw_hex ?? '—')) + '</div></div>').join('')
+    : '<p class="signal-empty">' + (definitions.length ? '正在等待解码数据；收到新帧后自动更新。' :
+      '尚未定义信号。点击“+ 定义信号”，选择起始位、长度和数据类型。') + '</p>';
+}
+function refreshSelectedSignalFrame(rows) {
+  if (!selectedSignalFrame || $('#signalInspector').hidden) return;
+  const identity = signalIdentity(selectedSignalFrame);
+  const latest = rows.slice().reverse().find(f => signalIdentity(f) === identity);
+  if (latest) selectedSignalFrame = latest;
+  renderSignalInspector();
+}
+function signalFrameForRow(row) {
+  return row ? lastTraceRows.find(f => String(f.seq) === row.dataset.seq) || null : null;
+}
+function closeSignalContextMenu() {
+  const menu = $('#signalContextMenu');
+  if (menu) menu.hidden = true;
+}
+function showSignalContextMenu(e, frame) {
+  if (!frame) return;
+  e.preventDefault();
+  signalContextFrame = frame;
+  selectTraceFrame(frame);
+  const menu = $('#signalContextMenu');
+  menu.hidden = false;
+  menu.style.left = Math.max(8, Math.min(e.clientX, window.innerWidth - 245)) + 'px';
+  menu.style.top = Math.max(8, Math.min(e.clientY, window.innerHeight - 105)) + 'px';
+}
+function newSignalForSelected() {
+  if (selectedSignalFrame) startSignalEditor(selectedSignalFrame);
+}
+function newSignalFromContext() {
+  closeSignalContextMenu();
+  startSignalEditor(signalContextFrame);
+}
+function viewSignalsFromContext() {
+  closeSignalContextMenu();
+  selectTraceFrame(signalContextFrame);
+}
+async function loadSignalDefinitions() {
+  signalDefinitions = await api('/api/signals');
+  renderSignalLibrary();
+  renderSignalInspector();
+}
+async function openSignalLibrary() {
+  $('#signalLibraryDialog').showModal();
+  try { await loadSignalDefinitions(); }
+  catch (e) { toast(e.message, true); }
+}
+function renderSignalLibrary() {
+  const element = $('#signalLibraryRows');
+  if (!element) return;
+  element.innerHTML = signalDefinitions.length
+    ? signalDefinitions.map(d =>
+      '<tr><td class="cell-mono">CAN' + d.channel + ' / ' + hex(d.can_id) + ' ' +
+      esc(d.frame_kind.toUpperCase()) + (d.extended ? ' EXT' : '') + '</td>' +
+      '<td><b>' + esc(d.name) + '</b>' + (d.unit ? ' · ' + esc(d.unit) : '') + '</td>' +
+      '<td class="cell-mono">' + d.start_bit + ' : ' + d.bit_length + '</td>' +
+      '<td>' + esc(d.value_type) + ' / ' + (d.byte_order === 'little_endian' ? 'Intel' : 'Motorola') + '</td>' +
+      '<td class="cell-mono">' + d.factor + ' / ' + d.offset + '</td>' +
+      '<td><button type="button" class="secondary" data-signal-edit="' + esc(d.key) + '">编辑</button>' +
+      '<button type="button" class="danger" data-signal-delete="' + esc(d.key) + '">删除</button></td></tr>').join('')
+    : '<tr><td colspan="6">暂无信号定义。右键 Trace 报文，或点击“新建信号”。</td></tr>';
+}
+function startSignalEditor(frame = null, definition = null) {
+  closeSignalContextMenu();
+  $('#signalEditorForm').reset();
+  $('#signalKey').value = definition?.key || '';
+  $('#signalName').value = definition?.name || '';
+  $('#signalChannel').value = definition?.channel ?? frame?.channel ?? 0;
+  $('#signalFrameKind').value = definition?.frame_kind || frame?.frame_kind || 'canfd';
+  $('#signalCanId').value = hex(definition?.can_id ?? frame?.can_id ?? 0x123);
+  $('#signalExtended').checked = definition?.extended ?? Boolean(frame?.extended);
+  $('#signalStartBit').value = definition?.start_bit ?? 0;
+  $('#signalBitLength').value = definition?.bit_length ?? 16;
+  $('#signalByteOrder').value = definition?.byte_order || 'little_endian';
+  $('#signalValueType').value = definition?.value_type || 'unsigned';
+  $('#signalFactor').value = definition?.factor ?? 1;
+  $('#signalOffset').value = definition?.offset ?? 0;
+  $('#signalUnit').value = definition?.unit || '';
+  $('#signalNotes').value = definition?.notes || '';
+  signalEditorFrame = frame || lastTraceRows.slice().reverse().find(f => signalMatches(f, definition)) || null;
+  $('#signalEditorSource').textContent = signalEditorFrame
+    ? '样本：CAN' + signalEditorFrame.channel + ' / ' + hex(signalEditorFrame.can_id) +
+      ' · ' + signalEditorFrame.data.length + ' 字节。编辑参数可实时预览。'
+    : '暂无样本帧。可手动定义并保存，收到匹配 CAN ID 的报文后自动解析。';
+  $('#signalEditorTitle').textContent = definition ? '编辑信号 · ' + definition.name : '定义新信号';
+  $('#signalEditorDialog').showModal();
+  updateSignalBitMap();
+  scheduleSignalPreview();
+  $('#signalName').focus();
+}
+function collectSignalForm() {
+  const parseInteger = (selector) => {
+    const value = Number($(selector).value);
+    if (!Number.isInteger(value)) throw new Error('起始位和位宽必须为整数');
+    return value;
+  };
+  return {
+    key: $('#signalKey').value,
+    name: $('#signalName').value.trim(),
+    channel: Number($('#signalChannel').value),
+    frame_kind: $('#signalFrameKind').value,
+    can_id: parseNum($('#signalCanId').value),
+    extended: $('#signalExtended').checked,
+    start_bit: parseInteger('#signalStartBit'),
+    bit_length: parseInteger('#signalBitLength'),
+    byte_order: $('#signalByteOrder').value,
+    value_type: $('#signalValueType').value,
+    factor: Number($('#signalFactor').value),
+    offset: Number($('#signalOffset').value),
+    unit: $('#signalUnit').value.trim(),
+    notes: $('#signalNotes').value.trim(),
+  };
+}
+function signalBitIndices(start, size, order) {
+  const bits = [];
+  if (!Number.isInteger(start) || !Number.isInteger(size) || size < 1 || size > 64) return bits;
+  let bit = start;
+  for (let i = 0; i < size; ++i) {
+    if (bit >= 0 && bit < 512) bits.push(bit);
+    bit = order === 'little_endian' ? bit + 1 : bit % 8 === 0 ? bit + 15 : bit - 1;
+  }
+  return bits;
+}
+function updateSignalBitMap() {
+  const root = $('#signalBitMap');
+  const frame = signalEditorFrame;
+  if (!root) return;
+  if (!frame?.data?.length) {
+    root.textContent = '暂无样本数据。选择 Trace 中的 CAN ID 后，可点击位格设置起始位。';
+    return;
+  }
+  const start = Number($('#signalStartBit').value);
+  const bits = new Set(signalBitIndices(start, Number($('#signalBitLength').value), $('#signalByteOrder').value));
+  root.innerHTML = frame.data.slice(0,64).map((value, i) => {
+    const byteBits = Array.from({length: 8}, (_, j) => {
+      const bit = 7 - j, index = i * 8 + bit;
+      const active = bits.has(index) ? ' is-signal' : '';
+      const first = index === start ? ' is-start' : '';
+      return '<button type="button" class="signal-byte-bit' + active + first + '" data-bit="' +
+        index + '" title="Byte ' + i + ' · bit' + bit + ' · Start Bit ' + index + '">' + bit + '</button>';
+    }).join('');
+    return '<div class="signal-byte-row"><span class="signal-byte-label">B' + i + ' · ' +
+      Number(value).toString(16).padStart(2,'0').toUpperCase() + '</span>' + byteBits + '</div>';
+  }).join('');
+}
+function scheduleSignalPreview() {
+  clearTimeout(signalPreviewTimer);
+  const generation = ++signalPreviewGeneration;
+  const output = $('#signalPreview');
+  if (!signalEditorFrame?.data?.length) {
+    output.textContent = '尚无样本数据。保存后将在实时 Trace 中显示解析结果。';
+    return;
+  }
+  let signal;
+  try { signal = collectSignalForm(); }
+  catch (e) { output.textContent = e.message; return; }
+  if (!signal.name || !Number.isInteger(signal.start_bit) || !Number.isInteger(signal.bit_length)) {
+    output.textContent = '填写名称、起始位和位宽后显示预览。';
+    return;
+  }
+  if (!signalMatches(signal, signalEditorFrame)) {
+    output.textContent = '当前编辑的报文与选中的样本不同，请从 Trace 选择相同 ID 的报文。';
+    return;
+  }
+  output.textContent = '正在预览…';
+  const data = signalEditorFrame.data;
+  signalPreviewTimer = setTimeout(async () => {
+    try {
+      const result = await api('/api/signals/preview',
+        {method: 'POST', body: {signal, data}, timeoutMs: 5000});
+      if (generation !== signalPreviewGeneration) return;
+      output.innerHTML = result.error
+        ? '<span>' + esc(result.error) + '</span>'
+        : '解析值 <strong>' + esc(formatSignalNumber(result.value)) + '</strong> ' +
+          esc(result.unit) + ' · 原始值：' + esc(result.raw) + ' (' + esc(result.raw_hex) + ')';
+    } catch (e) {
+      if (generation === signalPreviewGeneration) output.textContent = e.message;
+    }
+  }, 200);
+}
+async function saveSignalDefinition(event) {
+  event.preventDefault();
+  const button = $('#saveSignalBtn');
+  button.disabled = true;
+  try {
+    const saved = await api('/api/signals', {method: 'POST', body: collectSignalForm()});
+    await loadSignalDefinitions();
+    $('#signalEditorDialog').close();
+    toast('已保存信号 ' + saved.name + '，Trace 将实时解析');
+    await refreshTrace(true);
+  } catch (e) { toast(e.message, true); }
+  finally { button.disabled = false; }
+}
+async function deleteSignalDefinition(key) {
+  const definition = signalDefinitions.find(d => d.key === key);
+  if (!definition || !window.confirm('删除信号“' + definition.name + '”？')) return;
+  try {
+    await api('/api/signals/' + encodeURIComponent(key), {method: 'DELETE'});
+    await loadSignalDefinitions();
+    toast('已删除信号 ' + definition.name);
+    await refreshTrace(true);
+  } catch (e) { toast(e.message, true); }
+}
+function initializeSignalUI() {
+  const rows = $('#traceRows');
+  rows.addEventListener('click', e => {
+    const row = e.target.closest('tr[data-seq]');
+    if (row && e.target.closest('.trace-id-button')) selectTraceFrame(signalFrameForRow(row));
+  });
+  rows.addEventListener('contextmenu', e => {
+    const row = e.target.closest('tr[data-seq]');
+    if (row) showSignalContextMenu(e, signalFrameForRow(row));
+  });
+  $('#signalLibraryRows').addEventListener('click', e => {
+    const editor = e.target.closest('[data-signal-edit]');
+    const deletion = e.target.closest('[data-signal-delete]');
+    if (editor) {
+      const definition = signalDefinitions.find(d => d.key === editor.dataset.signalEdit);
+      if (definition) startSignalEditor(null, definition);
+    }
+    if (deletion) void deleteSignalDefinition(deletion.dataset.signalDelete);
+  });
+  $('#signalBitMap').addEventListener('click', e => {
+    const cell = e.target.closest('[data-bit]');
+    if (!cell) return;
+    $('#signalStartBit').value = cell.dataset.bit;
+    updateSignalBitMap();
+    scheduleSignalPreview();
+  });
+  $('#signalEditorForm').addEventListener('input', () => {
+    updateSignalBitMap();
+    scheduleSignalPreview();
+  });
+  $('#signalEditorForm').addEventListener('change', () => {
+    updateSignalBitMap();
+    scheduleSignalPreview();
+  });
+  $('#signalEditorForm').addEventListener('submit', saveSignalDefinition);
+  document.addEventListener('click', e => {
+    if (!e.target.closest('#signalContextMenu')) closeSignalContextMenu();
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') closeSignalContextMenu();
+  });
+}
+
 const traceClock = new Intl.DateTimeFormat(undefined, {
   hour: '2-digit', minute: '2-digit', second: '2-digit', fractionalSecondDigits: 3,
 });
 function renderTrace(rows) {
-  $('#traceRows').innerHTML=rows.slice(-TRACE_RENDER_LIMIT).reverse().map(f => `<tr><td>${f.seq}</td><td class="cell-mono">${traceClock.format(Math.floor(Number(f.timestamp_ns)/1e6))}</td><td><span class="frame-direction ${esc(f.direction)}">${esc(f.direction)}</span></td><td>${esc(f.frame_kind==='lin'?'LIN'+f.channel:'CAN'+f.channel)}</td><td>${esc(f.frame_kind)}</td><td class="cell-id cell-mono">${hex(f.can_id)}</td><td>${[f.extended?'EXT':'',f.remote?'RTR':'',f.brs?'BRS':'',f.esi?'ESI':''].filter(Boolean).join(' ') || '—'}</td><td class="cell-data">${esc(f.data_hex || (f.data||[]).map(x => x.toString(16).padStart(2,'0')).join(' ').toUpperCase())}</td><td class="cell-frequency">${f.frequency_hz ? `${Number(f.frequency_hz).toFixed(1)} Hz / ${Number(f.period_ms).toFixed(2)} ms` : '—'}</td></tr>`).join('');
+  lastTraceRows = rows.slice(-TRACE_RENDER_LIMIT);
+  $('#traceRows').innerHTML = lastTraceRows.slice().reverse().map(f => {
+    const flags = [f.extended?'EXT':'', f.remote?'RTR':'', f.brs?'BRS':'', f.esi?'ESI':''].filter(Boolean).join(' ') || '—';
+    const data = f.data_hex || (f.data||[]).map(x => x.toString(16).padStart(2,'0')).join(' ').toUpperCase();
+    const title = (f.decoded_signals||[]).map(s =>
+      s.name + ': ' + (s.error || formatSignalNumber(s.value)) + ' ' + s.unit).join(' | ');
+    return '<tr data-seq="' + esc(f.seq) + '">' +
+      '<td>' + esc(f.seq) + '</td>' +
+      '<td class="cell-mono">' + traceClock.format(Math.floor(Number(f.timestamp_ns)/1e6)) + '</td>' +
+      '<td><span class="frame-direction ' + esc(f.direction) + '">' + esc(f.direction) + '</span></td>' +
+      '<td>' + esc(f.frame_kind==='lin'?'LIN'+f.channel:'CAN'+f.channel) + '</td>' +
+      '<td>' + esc(f.frame_kind) + '</td>' +
+      '<td><button class="trace-id-button" type="button" title="点击查看解析，右键定义信号">' + hex(f.can_id) + '</button></td>' +
+      '<td>' + esc(flags) + '</td>' +
+      '<td class="cell-data">' + esc(data) + '</td>' +
+      '<td class="signal-summary" title="' + esc(title) + '">' + decodedSignalSummary(f) + '</td>' +
+      '<td class="cell-frequency">' + (f.frequency_hz ? Number(f.frequency_hz).toFixed(1) + ' Hz / ' +
+        Number(f.period_ms).toFixed(2) + ' ms' : '—') + '</td></tr>';
+  }).join('');
   const count = $('#traceVisibleCount');
-  if (count) count.textContent = String(Math.min(rows.length, TRACE_RENDER_LIMIT));
+  if (count) count.textContent = String(lastTraceRows.length);
+  refreshSelectedSignalFrame(lastTraceRows);
 }
 function scheduleScrollRender() {
   if (renderPending) return;
@@ -359,6 +678,9 @@ async function clearTrace() {
     await api('/api/trace', {method: 'DELETE'});
     liveFrames = [];
     $('#traceRows').replaceChildren();
+    lastTraceRows = [];
+    $('#traceVisibleCount').textContent = '0';
+    hideSignalInspector();
     await refreshTrace(true);
   } catch (e) { toast(e.message, true); }
 }
@@ -417,7 +739,9 @@ async function linSchedule() { try { toast(JSON.stringify(await api('/api/lin/sc
 
 (async () => {
   updateMessageFlags();
+  initializeSignalUI();
   await loadConfig(); await loadStatus(); await loadMessages();
+  try { await loadSignalDefinitions(); } catch (e) { toast('信号库读取失败：' + e.message, true); }
   connectWs(); loadMetrics();
   setInterval(() => { loadStatus(); loadMetrics(); },2000);
   setInterval(() => {

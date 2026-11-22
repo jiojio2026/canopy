@@ -8,7 +8,7 @@ CANopy turns a Linux computer and a ZLG USBCANFD-200U into a local web CAN tool.
 
 ## Features
 
-The v0.2.0 interface uses a responsive sidebar, a device-status toolbar, consistent work areas for all five modules, and a wider, more readable Trace table. The mobile layout keeps the original device controls and horizontally scrollable data tables.
+The v0.3.0 interface uses a responsive sidebar, a device-status toolbar, consistent work areas for all five modules, and a wider, more readable Trace table. The mobile layout keeps the original device controls and horizontally scrollable data tables.
 
 
 - CAN0/CAN1 dual-channel operation
@@ -16,6 +16,7 @@ The v0.2.0 interface uses a responsive sidebar, a device-status toolbar, consist
 - Standard/extended frames, remote frames, BRS, ESI and self reception
 - Up to 64-byte CAN FD payloads
 - Live Trace, latest-value view, rolling view and CSV export
+- Built-in custom signal editor: right-click a Trace frame to define bits, endian, signed/unsigned/IEEE754 types, Factor/Offset and unit; live decoded values without a DBC
 - Message library, simulation nodes and software periodic transmission
 - 120 Ω termination control and transmission timeout
 - Up to 64 hardware ID range filters per channel
@@ -26,6 +27,17 @@ The v0.2.0 interface uses a responsive sidebar, a device-status toolbar, consist
 - Bounded receive buffers and batched WebSocket updates
 - Long-running Trace protection: at most 3,000 buffered browser frames and 1,000 displayed rows; only one HTTP snapshot in flight; WebSocket streaming pauses when Trace is hidden
 - Mock backend for UI development without hardware
+
+## Custom signal editor (no DBC required)
+
+1. Open **实时 Trace**, right-click any CAN/CAN FD row (for example CAN1, \`0x706\`) and select **定义信号**. Clicking the CAN ID opens a live signal inspector; the **信号库** toolbar button opens management for all definitions.
+2. Enter a descriptive **信号名称**, **Start Bit** and **Bit Length**, choose **Intel / Little Endian** or **Motorola / Big Endian** and the correct data type. If necessary, set **Factor**, **Offset** and **Unit**. A selected frame provides a clickable byte/bit map and decoded sample preview.
+3. Click **保存并实时解析**. The Trace table gains a decoded-signal summary; clicking the CAN ID shows the latest values, including the raw integer and hex value. In the signal library, edit, remove, or export your definitions.
+4. Definitions are saved automatically to **\`data/signals.json\`** (or \`$CAN_WEB_DATA/signals.json\`) and are loaded on the next launch. Export JSON from the library for backup. Exporting a standard DBC file is not part of this first release.
+
+**Protocol caution:** This editor decodes according to definitions you supply; it cannot infer the semantic meaning of unknown vendor bytes. Bit numbering follows DBC conventions (Intel start bit is LSB of the signal; Motorola start bit is MSB of the signal with per-byte sawtooth bit numbering). Classic CAN is limited to 8 bytes, CAN FD to 64 bytes. Message matching is scoped to channel, CAN/CAN FD kind, frame ID and standard/extended ID type. Truncated frames produce a decoding error rather than a fabricated value.
+
+The decoder runs on HTTP snapshots and WebSocket broadcast batches, not the hardware receive callback. Trace buffers remain bounded (1,000 DOM rows / 3,000 rolling browser frames). Long-running, high-load verification still requires real hardware.
 
 ## Supported platform
 

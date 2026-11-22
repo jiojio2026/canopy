@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>CANopy</title>
-  <link rel="stylesheet" href="/static/style.css?v=0.2.0">
+  <link rel="stylesheet" href="/static/style.css?v=0.3.0">
 </head>
 <body>
 <div class="app-shell">
@@ -25,7 +25,7 @@
       <div class="sidebar-footer-title"><span class="status-pulse"></span> LOCAL WORKBENCH</div>
       <div>ZLG USBCANFD-200U</div>
       <div>Linux x86-64 · VCI ABI</div>
-      <span class="sidebar-version">v0.2.0</span>
+      <span class="sidebar-version">v0.3.0</span>
     </div>
   </aside>
   <div class="workspace">
@@ -85,7 +85,7 @@
 </section>
 
 <section id="trace" class="panel">
-  <div class="page-heading"><div><div class="eyebrow">LIVE CAPTURE / 实时抓包</div><h1>实时 Trace</h1><p>跟踪 CAN / CAN FD 报文、周期与频率，快速定位总线问题。</p></div></div>
+  <div class="page-heading"><div><div class="eyebrow">LIVE CAPTURE / 实时抓包</div><h1>实时 Trace</h1><p>跟踪 CAN / CAN FD 报文，右键报文可定义字段并实时解码，无需 DBC 文件。</p></div></div>
   <article class="trace-card">
     <div class="trace-toolbar">
       <div class="trace-toolbar-title"><span class="live-dot"></span><div><h2>报文监视器</h2><p>实时观察与诊断 · 最新值 / 滚动视图</p></div></div>
@@ -94,10 +94,18 @@
         <button onclick="refreshTrace()">刷新</button>
         <button class="secondary" onclick="clearTrace()">清空</button>
         <a class="button secondary" href="/api/trace.csv">导出 CSV</a>
+        <button type="button" class="secondary" onclick="openSignalLibrary()">信号库</button>
       </div>
     </div>
-    <div class="trace-info"><span><span class="live-dot small"></span> LIVE CAPTURE</span><span>当前显示 <strong id="traceVisibleCount">0</strong> 帧</span><span>表格最多保留 1,000 行 · 自动限制浏览器内存</span></div>
-    <div class="table-wrap trace"><table><thead><tr><th>Seq</th><th>时间</th><th>方向</th><th>通道</th><th>类型</th><th>ID</th><th>标志</th><th>数据</th><th>Hz/周期</th></tr></thead><tbody id="traceRows"></tbody></table></div>
+    <div class="trace-info"><span><span class="live-dot small"></span> LIVE CAPTURE</span><span>当前显示 <strong id="traceVisibleCount">0</strong> 帧</span><span>右键任一帧定义信号 · 点击 ID 查看实时解析</span></div>
+    <div class="signal-inspector" id="signalInspector" hidden>
+      <div class="signal-inspector-head">
+        <div><div class="eyebrow">SIGNAL INSPECTOR</div><h3 id="signalInspectorTitle">已选报文</h3><div class="hint" id="signalInspectorMeta"></div></div>
+        <div class="actions"><button class="secondary" type="button" onclick="newSignalForSelected()">+ 定义信号</button><button class="secondary" type="button" onclick="hideSignalInspector()">收起</button></div>
+      </div>
+      <div id="signalInspectorRows" class="signal-inspector-values"></div>
+    </div>
+    <div class="table-wrap trace"><table><thead><tr><th>Seq</th><th>时间</th><th>方向</th><th>通道</th><th>类型</th><th>ID</th><th>标志</th><th>数据</th><th>解析信号</th><th>Hz/周期</th></tr></thead><tbody id="traceRows"></tbody></table></div>
   </article>
 </section>
 
@@ -121,6 +129,56 @@
 </main>
   </div>
 </div>
+<div class="signal-menu" id="signalContextMenu" role="menu" hidden>
+  <button type="button" role="menuitem" onclick="newSignalFromContext()">定义信号 / Define Signal</button>
+  <button type="button" role="menuitem" onclick="viewSignalsFromContext()">查看信号解析</button>
+</div>
+<dialog id="signalLibraryDialog" class="signal-dialog">
+  <div class="section-head"><div><div class="eyebrow">SIGNAL LIBRARY</div><h2>自定义信号库</h2></div>
+    <button class="secondary" type="button" onclick="$('#signalLibraryDialog').close()">关闭</button></div>
+  <p class="hint">无需 DBC。信号定义保存在本机 data/signals.json；可导出 JSON 备份。</p>
+  <div class="actions signal-library-actions">
+    <button type="button" onclick="startSignalEditor()">+ 新建信号</button>
+    <a class="button secondary" href="/api/signals/export">导出定义 JSON</a>
+  </div>
+  <div class="table-wrap signal-library-table">
+    <table><thead><tr><th>报文</th><th>信号名称</th><th>位范围</th><th>类型 / 字节序</th><th>系数 / 偏移</th><th>操作</th></tr></thead>
+      <tbody id="signalLibraryRows"></tbody></table>
+  </div>
+</dialog>
+<dialog id="signalEditorDialog" class="signal-dialog">
+  <form id="signalEditorForm">
+    <div class="section-head"><div><div class="eyebrow">CUSTOM SIGNAL DECODER</div><h2 id="signalEditorTitle">定义信号</h2></div>
+      <button class="secondary" type="button" onclick="$('#signalEditorDialog').close()">关闭</button></div>
+    <p class="hint" id="signalEditorSource">可从 Trace 中选一帧以预览字段解析结果。</p>
+    <input id="signalKey" type="hidden">
+    <div class="form-divider">匹配报文 <span>MESSAGE MATCH</span></div>
+    <div class="signal-form-grid">
+      <label>通道<select id="signalChannel"><option value="0">CAN0</option><option value="1">CAN1</option></select></label>
+      <label>报文类型<select id="signalFrameKind"><option value="can">Classic CAN</option><option value="canfd">CAN FD</option></select></label>
+      <label>CAN ID<input id="signalCanId" required placeholder="0x706" value="0x706"></label>
+      <label class="signal-check"><input type="checkbox" id="signalExtended">扩展帧（29 位）</label>
+    </div>
+    <div class="form-divider">信号参数 <span>SIGNAL DEFINITION</span></div>
+    <div class="signal-form-grid">
+      <label>信号名称<input id="signalName" required maxlength="64" placeholder="例如 MotorSpeed"></label>
+      <label>起始位 Start Bit<input id="signalStartBit" type="number" min="0" max="511" value="0" required></label>
+      <label>位宽 Bit Length<input id="signalBitLength" type="number" min="1" max="64" value="16" required></label>
+      <label>字节序<select id="signalByteOrder"><option value="little_endian">Intel / Little Endian</option><option value="big_endian">Motorola / Big Endian</option></select></label>
+      <label>数据类型<select id="signalValueType"><option value="unsigned">无符号整数</option><option value="signed">有符号整数</option><option value="float32">IEEE754 float32</option><option value="float64">IEEE754 float64</option></select></label>
+      <label>Factor 比例<input id="signalFactor" type="number" step="any" value="1" required></label>
+      <label>Offset 偏移<input id="signalOffset" type="number" step="any" value="0" required></label>
+      <label>单位 Unit<input id="signalUnit" maxlength="32" placeholder="例如 rad/s、A、Nm"></label>
+    </div>
+    <label class="signal-notes">备注<textarea id="signalNotes" maxlength="256" rows="2" placeholder="记录协议来源、字段含义（可选）"></textarea></label>
+    <div class="form-divider">位布局 / 实时预览 <span>BYTE AND BIT MAP</span></div>
+    <p class="hint">位编号按 DBC 约定：每字节 bit0 为最低位；Motorola 起始位指最高有效位。点击位格可设置 Start Bit。</p>
+    <div id="signalBitMap" class="signal-bit-map"></div>
+    <div id="signalPreview" class="signal-preview">从 Trace 中选择报文后，可根据当前原始数据预览信号。</div>
+    <div class="dialog-actions"><button class="secondary" type="button" onclick="$('#signalEditorDialog').close()">取消</button>
+      <button type="submit" id="saveSignalBtn">保存并实时解析</button></div>
+  </form>
+</dialog>
 
 <dialog id="configDialog">
   <form method="dialog" id="configForm">
@@ -137,5 +195,5 @@
     <p class="hint">你上传的 Linux x86-64 SDK Demo 使用设备类型 33，本工具默认按 33 打开；仅在失败时兼容尝试 41。内置 120Ω 只在该通道位于总线物理端点时开启。</p>
   </form>
 </dialog>
-<div id="toast"></div><script src="/static/app.js?v=0.2.0"></script>
+<div id="toast"></div><script src="/static/app.js?v=0.3.0"></script>
 </body></html>

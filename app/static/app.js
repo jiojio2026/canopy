@@ -90,6 +90,9 @@ document.querySelectorAll('.tab').forEach(b => b.onclick = () => {
   document.querySelectorAll('.tab,.panel').forEach(x => x.classList.remove('active'));
   b.classList.add('active');
   $('#' + b.dataset.tab).classList.add('active');
+  const label = b.querySelector('span:last-child')?.textContent || b.textContent.trim();
+  const pageName = $('#pageName');
+  if (pageName) pageName.textContent = label;
   if (b.dataset.tab === 'trace') void refreshTrace(true);
   syncTraceSubscription();
 });
@@ -199,6 +202,8 @@ async function loadStatus() {
     const badge = $('#deviceBadge');
     badge.textContent = s.opened ? (s.online ? '已连接' : '已打开/离线') : '未连接';
     badge.className = 'badge ' + (s.opened ? 'on' : 'off');
+    $('#openDeviceBtn').disabled = Boolean(s.opened);
+    $('#closeDeviceBtn').disabled = !s.opened;
     $('#deviceInfo').innerHTML = Object.entries({
       驱动:s.driver, 动态库:s.library || '-', 硬件:s.device_info?.hardware || '-',
       序列号:s.device_info?.serial || '-', 固件:s.device_info?.firmware_version || '-',
@@ -250,7 +255,7 @@ async function closeDevice() {
 
 function renderChannels() {
   if (!config) return;
-  $('#channelCards').innerHTML=config.channels.map((c,i) => `<article class="channel-card"><div class="section-head"><h2>CAN${i}</h2><span class="tag">${c.enabled ? esc(c.protocol.toUpperCase()) : '禁用'}</span></div><div class="kv"><b>仲裁速率</b><span>${Number(c.arbitration_bitrate).toLocaleString()} bit/s</span><b>数据速率</b><span>${c.protocol==='canfd' ? Number(c.data_bitrate).toLocaleString()+' bit/s' : '-'}</span><b>标准</b><span>${esc(c.canfd_standard)}</span><b>模式</b><span>${esc(c.mode)}</span><b>内置 120Ω</b><span>${c.resistance_120ohm ? '开启' : '关闭'}</span></div><div class="actions"><button onclick="diagnose(${i})">诊断</button><button class="secondary" onclick="resetCh(${i})">复位</button><button class="secondary" onclick="clearCh(${i})">清缓冲</button><button class="secondary" onclick="clearHwPeriodic(${i})">清硬件周期</button></div><pre id="diag${i}"></pre></article>`).join('');
+  $('#channelCards').innerHTML=config.channels.map((c,i) => `<article class="channel-card"><div class="section-head"><div><div class="eyebrow">BUS INTERFACE</div><h2>CAN${i}</h2></div><span class="tag ${c.enabled ? 'tag-online' : 'tag-muted'}">${c.enabled ? esc(c.protocol.toUpperCase()) : '禁用'}</span></div><div class="kv"><b>仲裁速率</b><span>${Number(c.arbitration_bitrate).toLocaleString()} bit/s</span><b>数据速率</b><span>${c.protocol==='canfd' ? Number(c.data_bitrate).toLocaleString()+' bit/s' : '-'}</span><b>标准</b><span>${esc(c.canfd_standard)}</span><b>模式</b><span>${esc(c.mode)}</span><b>内置 120Ω</b><span>${c.resistance_120ohm ? '开启' : '关闭'}</span></div><div class="actions"><button onclick="diagnose(${i})">诊断</button><button class="secondary" onclick="resetCh(${i})">复位</button><button class="secondary" onclick="clearCh(${i})">清缓冲</button><button class="secondary" onclick="clearHwPeriodic(${i})">清硬件周期</button></div><pre id="diag${i}"></pre></article>`).join('');
 }
 async function diagnose(i) { try { $(`#diag${i}`).textContent=JSON.stringify(await api(`/api/device/diagnostics/${i}`),null,2); } catch(e) { toast(e.message,true); } }
 async function resetCh(i) { try { await api(`/api/device/reset/${i}`,{method:'POST'}); toast(`CAN${i} 已复位`); } catch(e) { toast(e.message,true); } }
@@ -336,7 +341,9 @@ const traceClock = new Intl.DateTimeFormat(undefined, {
   hour: '2-digit', minute: '2-digit', second: '2-digit', fractionalSecondDigits: 3,
 });
 function renderTrace(rows) {
-  $('#traceRows').innerHTML=rows.slice(-TRACE_RENDER_LIMIT).reverse().map(f => `<tr><td>${f.seq}</td><td>${traceClock.format(Math.floor(Number(f.timestamp_ns)/1e6))}</td><td>${esc(f.direction)}</td><td>${esc(f.frame_kind==='lin'?'LIN'+f.channel:'CAN'+f.channel)}</td><td>${esc(f.frame_kind)}</td><td>${hex(f.can_id)}</td><td>${[f.extended?'EXT':'',f.remote?'RTR':'',f.brs?'BRS':'',f.esi?'ESI':''].filter(Boolean).join(' ')}</td><td>${esc(f.data_hex || (f.data||[]).map(x => x.toString(16).padStart(2,'0')).join(' ').toUpperCase())}</td><td>${f.frequency_hz ? `${Number(f.frequency_hz).toFixed(1)} Hz / ${Number(f.period_ms).toFixed(2)} ms` : ''}</td></tr>`).join('');
+  $('#traceRows').innerHTML=rows.slice(-TRACE_RENDER_LIMIT).reverse().map(f => `<tr><td>${f.seq}</td><td class="cell-mono">${traceClock.format(Math.floor(Number(f.timestamp_ns)/1e6))}</td><td><span class="frame-direction ${esc(f.direction)}">${esc(f.direction)}</span></td><td>${esc(f.frame_kind==='lin'?'LIN'+f.channel:'CAN'+f.channel)}</td><td>${esc(f.frame_kind)}</td><td class="cell-id cell-mono">${hex(f.can_id)}</td><td>${[f.extended?'EXT':'',f.remote?'RTR':'',f.brs?'BRS':'',f.esi?'ESI':''].filter(Boolean).join(' ') || '—'}</td><td class="cell-data">${esc(f.data_hex || (f.data||[]).map(x => x.toString(16).padStart(2,'0')).join(' ').toUpperCase())}</td><td class="cell-frequency">${f.frequency_hz ? `${Number(f.frequency_hz).toFixed(1)} Hz / ${Number(f.period_ms).toFixed(2)} ms` : '—'}</td></tr>`).join('');
+  const count = $('#traceVisibleCount');
+  if (count) count.textContent = String(Math.min(rows.length, TRACE_RENDER_LIMIT));
 }
 function scheduleScrollRender() {
   if (renderPending) return;
@@ -395,7 +402,7 @@ function connectWs() {
 async function loadMetrics() {
   try {
     const m=await api('/api/metrics');
-    $('#metrics').innerHTML=Object.entries(m).map(([ch,x]) => `<div class="stat"><b>CAN${ch}</b><strong>${x.load_1s_pct}%</strong><span>${x.frames_1s} 帧/s · 10s ${x.load_10s_avg_pct}%</span></div>`).join('');
+    $('#metrics').innerHTML=Object.entries(m).map(([ch,x]) => `<div class="stat"><b>CAN${ch} / BUS LOAD</b><strong>${x.load_1s_pct}%</strong><span>${x.frames_1s} 帧/s · 10 秒均值 ${x.load_10s_avg_pct}%</span></div>`).join('');
   } catch {}
 }
 async function applyFilters() { try { const channel=+$('#filterChannel').value, filters=JSON.parse($('#filterJson').value); toast(JSON.stringify(await api('/api/filters',{method:'PUT',body:{channel,filters}}))); } catch(e) { toast(e.message,true); } }

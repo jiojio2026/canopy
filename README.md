@@ -8,6 +8,9 @@ CANopy turns a Linux computer and a ZLG USBCANFD-200U into a local web CAN tool.
 
 ## Features
 
+The v0.2.0 interface uses a responsive sidebar, a device-status toolbar, consistent work areas for all five modules, and a wider, more readable Trace table. The mobile layout keeps the original device controls and horizontally scrollable data tables.
+
+
 - CAN0/CAN1 dual-channel operation
 - Classic CAN and CAN FD, ISO/Non-ISO, normal/listen-only modes
 - Standard/extended frames, remote frames, BRS, ESI and self reception

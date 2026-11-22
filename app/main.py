@@ -25,7 +25,7 @@ except Exception: messages=[]
 
 def frame_callback(frame):
     f=trace.add(frame)
-    if event_loop:
+    if event_loop and subscribers:
         try: event_loop.call_soon_threadsafe(enqueue_live, f)
         except Exception: pass
 
@@ -274,8 +274,15 @@ async def broadcast_loop():
         for ws in dead: subscribers.discard(ws)
 @app.websocket("/ws/trace")
 async def ws_trace(ws:WebSocket):
-    await ws.accept(); subscribers.add(ws)
+    await ws.accept()
     try:
-        while True: await ws.receive_text()
-    except WebSocketDisconnect: pass
-    finally: subscribers.discard(ws)
+        while True:
+            command = await ws.receive_text()
+            if command == "subscribe":
+                subscribers.add(ws)
+            elif command == "unsubscribe":
+                subscribers.discard(ws)
+    except WebSocketDisconnect:
+        pass
+    finally:
+        subscribers.discard(ws)

@@ -21,6 +21,7 @@ CANopy turns a Linux computer and a ZLG USBCANFD-200U into a local web CAN tool.
 - CAN controller state, error counters, error information and channel reset
 - Two-channel LIN initialization, transmit/receive, Publish and Subscribe
 - Bounded receive buffers and batched WebSocket updates
+- Long-running Trace protection: at most 3,000 buffered browser frames and 1,000 displayed rows; only one HTTP snapshot in flight; WebSocket streaming pauses when Trace is hidden
 - Mock backend for UI development without hardware
 
 ## Supported platform

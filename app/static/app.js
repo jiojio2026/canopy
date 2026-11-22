@@ -5,6 +5,28 @@ let ws = null;
 let liveFrames = [];
 let renderPending = false;
 let latestDirty = false;
+let traceRefreshing = false;
+let traceRefreshQueued = false;
+let traceRevision = 0;
+let wsSubscribed = false;
+let wsReconnectTimer = null;
+const TRACE_RENDER_LIMIT = 1000;
+const TRACE_SCROLL_LIMIT = 3000;
+
+function traceIsVisible() {
+  return !document.hidden && $('#trace').classList.contains('active');
+}
+function syncTraceSubscription() {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  const wantFrames = traceIsVisible();
+  if (wantFrames === wsSubscribed) return;
+  ws.send(wantFrames ? 'subscribe' : 'unsubscribe');
+  wsSubscribed = wantFrames;
+}
+document.addEventListener('visibilitychange', () => {
+  syncTraceSubscription();
+  if (traceIsVisible()) void refreshTrace(true);
+});
 
 function toast(msg, err = false) {
   const el = $('#toast');
@@ -68,7 +90,8 @@ document.querySelectorAll('.tab').forEach(b => b.onclick = () => {
   document.querySelectorAll('.tab,.panel').forEach(x => x.classList.remove('active'));
   b.classList.add('active');
   $('#' + b.dataset.tab).classList.add('active');
-  if (b.dataset.tab === 'trace') refreshTrace();
+  if (b.dataset.tab === 'trace') void refreshTrace(true);
+  syncTraceSubscription();
 });
 
 function canConfigCard(i) {
@@ -283,36 +306,91 @@ async function sendSaved(k) { try { await api(`/api/messages/${encodeURIComponen
 async function delMsg(k) { try { const r=await api(`/api/messages/${encodeURIComponent(k)}`,{method:'DELETE'}); toast(r.warning ? `已删除；${r.warning}` : '已删除',Boolean(r.warning)); await loadMessages(); } catch(e) { toast(e.message,true); } }
 async function nodeEnable(n,b) { try { await api(`/api/nodes/${encodeURIComponent(n)}/enable/${b}`,{method:'POST'}); await loadMessages(); } catch(e) { toast(e.message,true); } }
 
-async function refreshTrace() {
+async function refreshTrace(force = true) {
+  // At most one HTTP snapshot; queue explicit refresh/mode changes only.
+  if (traceRefreshing) {
+    if (force) traceRefreshQueued = true;
+    return;
+  }
+  traceRefreshing = true;
+  const mode = $('#traceMode').value;
+  const revision = traceRevision;
+  latestDirty = false; // Frames received mid-request still require a later refresh.
   try {
-    const mode=$('#traceMode').value;
-    const rows=await api(`/api/trace?mode=${mode}&limit=1000`);
-    if (mode==='scroll') liveFrames=rows.slice(-3000);
-    renderTrace(rows); latestDirty=false;
-  } catch(e) { toast(e.message,true); }
+    const rows = await api('/api/trace?mode=' + encodeURIComponent(mode) + '&limit=' + TRACE_RENDER_LIMIT);
+    if (revision !== traceRevision || mode !== $('#traceMode').value) return;
+    if (mode === 'scroll') liveFrames = rows.slice(-TRACE_SCROLL_LIMIT);
+    if (traceIsVisible()) renderTrace(rows);
+  } catch (e) {
+    if (force) toast(e.message, true);
+    else latestDirty = true;
+  } finally {
+    traceRefreshing = false;
+    if (traceRefreshQueued) {
+      traceRefreshQueued = false;
+      if (traceIsVisible()) void refreshTrace(true);
+    }
+  }
 }
 const traceClock = new Intl.DateTimeFormat(undefined, {
   hour: '2-digit', minute: '2-digit', second: '2-digit', fractionalSecondDigits: 3,
 });
 function renderTrace(rows) {
-  $('#traceRows').innerHTML=rows.slice(-1000).reverse().map(f => `<tr><td>${f.seq}</td><td>${traceClock.format(Math.floor(Number(f.timestamp_ns)/1e6))}</td><td>${esc(f.direction)}</td><td>${esc(f.frame_kind==='lin'?'LIN'+f.channel:'CAN'+f.channel)}</td><td>${esc(f.frame_kind)}</td><td>${hex(f.can_id)}</td><td>${[f.extended?'EXT':'',f.remote?'RTR':'',f.brs?'BRS':'',f.esi?'ESI':''].filter(Boolean).join(' ')}</td><td>${esc(f.data_hex || (f.data||[]).map(x => x.toString(16).padStart(2,'0')).join(' ').toUpperCase())}</td><td>${f.frequency_hz ? `${Number(f.frequency_hz).toFixed(1)} Hz / ${Number(f.period_ms).toFixed(2)} ms` : ''}</td></tr>`).join('');
+  $('#traceRows').innerHTML=rows.slice(-TRACE_RENDER_LIMIT).reverse().map(f => `<tr><td>${f.seq}</td><td>${traceClock.format(Math.floor(Number(f.timestamp_ns)/1e6))}</td><td>${esc(f.direction)}</td><td>${esc(f.frame_kind==='lin'?'LIN'+f.channel:'CAN'+f.channel)}</td><td>${esc(f.frame_kind)}</td><td>${hex(f.can_id)}</td><td>${[f.extended?'EXT':'',f.remote?'RTR':'',f.brs?'BRS':'',f.esi?'ESI':''].filter(Boolean).join(' ')}</td><td>${esc(f.data_hex || (f.data||[]).map(x => x.toString(16).padStart(2,'0')).join(' ').toUpperCase())}</td><td>${f.frequency_hz ? `${Number(f.frequency_hz).toFixed(1)} Hz / ${Number(f.period_ms).toFixed(2)} ms` : ''}</td></tr>`).join('');
 }
 function scheduleScrollRender() {
-  if (renderPending) return; renderPending=true;
-  setTimeout(() => { renderPending=false; if ($('#trace').classList.contains('active') && $('#traceMode').value==='scroll') renderTrace(liveFrames); },100);
+  if (renderPending) return;
+  renderPending = true;
+  setTimeout(() => {
+    renderPending = false;
+    if (traceIsVisible() && $('#traceMode').value === 'scroll') renderTrace(liveFrames);
+  }, 250);
 }
-async function clearTrace() { try { await api('/api/trace',{method:'DELETE'}); liveFrames=[]; await refreshTrace(); } catch(e) { toast(e.message,true); } }
+async function clearTrace() {
+  ++traceRevision; // Ignore pre-clear in-flight snapshots.
+  try {
+    await api('/api/trace', {method: 'DELETE'});
+    liveFrames = [];
+    $('#traceRows').replaceChildren();
+    await refreshTrace(true);
+  } catch (e) { toast(e.message, true); }
+}
 function connectWs() {
-  ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws/trace');
-  ws.onmessage=e => {
-    let msg; try { msg=JSON.parse(e.data); } catch { return; }
-    const frames=msg.type==='frames' ? msg.frames : [msg]; latestDirty=true;
-    if ($('#traceMode').value==='scroll') {
-      liveFrames.push(...frames); if (liveFrames.length>3000) liveFrames.splice(0,liveFrames.length-3000); scheduleScrollRender();
+  if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
+  const socket = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws/trace');
+  ws = socket;
+  wsSubscribed = false;
+  socket.onmessage = e => {
+    if (!traceIsVisible()) return;
+    // Latest mode only needs to know there are changes, not parse frame arrays.
+    if ($('#traceMode').value === 'latest') {
+      latestDirty = true;
+      return;
+    }
+    let msg;
+    try { msg = JSON.parse(e.data); } catch { return; }
+    if (msg.type !== 'frames' || !Array.isArray(msg.frames)) return;
+    const frames = msg.frames;
+    if (frames.length >= TRACE_SCROLL_LIMIT) {
+      liveFrames = frames.slice(-TRACE_SCROLL_LIMIT);
+    } else {
+      liveFrames.push(...frames);
+      if (liveFrames.length > TRACE_SCROLL_LIMIT) liveFrames.splice(0, liveFrames.length - TRACE_SCROLL_LIMIT);
+    }
+    scheduleScrollRender();
+  };
+  socket.onclose = () => {
+    if (ws !== socket) return;
+    ws = null;
+    wsSubscribed = false;
+    if (wsReconnectTimer === null) {
+      wsReconnectTimer = setTimeout(() => {
+        wsReconnectTimer = null;
+        connectWs();
+      }, 1000);
     }
   };
-  ws.onclose=() => setTimeout(connectWs,1000);
-  ws.onopen=() => ws.send('subscribe');
+  socket.onopen = () => syncTraceSubscription();
 }
 async function loadMetrics() {
   try {
@@ -332,8 +410,10 @@ async function linSchedule() { try { toast(JSON.stringify(await api('/api/lin/sc
 
 (async () => {
   updateMessageFlags();
-  await loadConfig(); await loadStatus(); await loadMessages(); await refreshTrace();
+  await loadConfig(); await loadStatus(); await loadMessages();
   connectWs(); loadMetrics();
   setInterval(() => { loadStatus(); loadMetrics(); },2000);
-  setInterval(() => { if (latestDirty && $('#trace').classList.contains('active') && $('#traceMode').value==='latest') refreshTrace(); },250);
+  setInterval(() => {
+    if (latestDirty && traceIsVisible() && $('#traceMode').value === 'latest') void refreshTrace(false);
+  }, 500);
 })();

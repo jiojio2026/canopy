@@ -7,7 +7,8 @@ const {test} = require('node:test');
 function harness() {
   let source = fs.readFileSync(path.join(__dirname, '../app/static/app.js'), 'utf8');
   // Exclude the asynchronous app bootstrap from isolated Trace tests.
-  source = source.replace(/\(async \(\) => \{[\s\S]*\}\)\(\);\s*$/, '');
+  const bootstrap = source.lastIndexOf('\n(async () => {');
+  if (bootstrap >= 0) source = source.slice(0, bootstrap);
   const elements = new Map();
   const visible = {active: true};
   const pendingRequests = [], sockets = [], sent = [];

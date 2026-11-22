@@ -65,7 +65,7 @@ test('Mode changes queue a new snapshot without rendering the stale response', a
   await first;
   await h.settle();
   assert.equal(h.pendingRequests.length, 1);
-  assert.equal(h.elements.get('#traceRows').innerHTML, '');
+  assert.equal(h.elements.has('#traceRows'), false);
   h.reply(h.pendingRequests.shift(), []);
   await h.settle();
 });

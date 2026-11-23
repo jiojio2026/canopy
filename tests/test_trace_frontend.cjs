@@ -26,6 +26,7 @@ function harness() {
   element('#traceFilterChannel').value = 'all';
   element('#traceFilterDirection').value = 'all';
   element('#traceDensity').value = 'compact';
+  element('#signalSearch').value = '';
   class FakeSocket {
     static OPEN = 1;
     static CONNECTING = 0;

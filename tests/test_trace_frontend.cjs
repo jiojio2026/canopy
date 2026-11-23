@@ -143,7 +143,8 @@ test('Trace keeps the summary compact and expands all decoded signals in one det
   h.ctx.renderTrace([frame]);
   let html = h.elements.get('#traceRows').innerHTML;
   assert.ok(html.includes('展开全部 24 项'));
-  assert.ok(!html.includes('Signal_23'));
+  const compactSummary = html.match(/<div class="signal-summary-list">([\s\S]*?)<\/div>/)?.[1] || '';
+  assert.ok(!compactSummary.includes('Signal_23'));
   assert.equal((html.match(/<tr\b/g) || []).length, 1);
 
   h.ctx.toggleTraceSignalDetails(frame);

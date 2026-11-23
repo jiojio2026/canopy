@@ -617,3 +617,11 @@ details label { margin-top: 12px; }
 }
 
 #trace.trace-compact .trace-data-table td { height: 32px; padding-block: 4px; }
+
+
+/* Wireshark-style lower signal pane: packet list stays the primary view. */
+#trace .trace-card:has(#signalInspector:not([hidden])) .trace.table-wrap {
+  max-height: max(220px,calc(100vh - 600px));
+}
+#trace .signal-inspector { border-top: 1px solid #d8e4f0; }
+#trace .signal-inspector:not([hidden]) { border-radius: 0 0 8px 8px; }

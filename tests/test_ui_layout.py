@@ -120,3 +120,8 @@ def test_dense_trace_workbench_and_configurable_columns():
                   "#trace.trace-compact", "#trace.trace-standard",
                   "#trace .signal-inspector-table"):
         assert token in CSS
+
+
+def test_inspector_docks_below_trace_packets():
+    assert HTML.index('id="traceTableViewport"') < HTML.index('id="signalInspector"')
+    assert "#trace .trace-card:has(#signalInspector:not([hidden]))" in CSS

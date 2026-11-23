@@ -39,7 +39,7 @@ Use **实时 Trace** for high-density CAN/CAN FD capture.
 - **Density** defaults to *紧凑* (approximately 32 px per row). Select *标准* to increase spacing.
 - **Columns**: open *列设置* to show/hide columns, move them up/down, or restore the default layout. Drag the narrow right border of a header to resize its column; keyboard users can focus the separator and press Left/Right arrows.
 - **Persistence**: density, visible columns, widths and order are saved in your browser's `localStorage` under `canopy.trace.layout.v1`. They do not modify device configuration or signal definitions. Sorting and filters are temporary to the current browser session.
-- **Signal Inspector**: click a CAN ID for a searchable, compact five-column table (name, decoded value, raw hex, unit, status). *展开全部* below a packet opens a second compact table. Only one packet can be expanded at a time.
+- **Signal Inspector**: a lower pane below the packet list opens when you click a CAN ID, showing a searchable, compact five-column table (name, decoded value, raw hex, unit, status). *展开全部* below a packet opens a second compact table. Only one packet can be expanded at a time.
 
 Original CAN/CAN FD decoding, right-click signal definition, full raw payload, 1,000 displayed-frame / 3,000 rolling-frame limits and WebSocket visibility pausing are retained. The entire Trace table still redraws on scheduled updates; longer-term virtualization and very-high-rate browser profiling remain potential improvements.
 

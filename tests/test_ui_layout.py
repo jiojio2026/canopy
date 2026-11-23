@@ -44,6 +44,11 @@ def test_all_views_and_device_controls_remain_accessible():
         "signalImportFile", "signalImportConflict", "signalImportResult",
         "signalDisplayMode", "signalChoices", "signalChoicesGroup",
         "signalOccupiedSummary", "signalExistingList",
+        "traceFilterId", "traceFilterChannel", "traceFilterDirection",
+        "traceDensity", "traceColumnPicker", "traceColumnOptions",
+        "traceResetLayout", "traceTable", "traceTableViewport",
+        "traceColgroup", "traceHeaderRow", "traceFilterStats",
+        "signalInspectorViewport",
     )
     assert set(required) <= set(page.ids)
 
@@ -59,9 +64,9 @@ def test_sidebar_responsiveness_and_trace_bound():
 
 
 def test_version_alignment():
-    assert "v0.4.0" in HTML
-    assert "/static/style.css?v=0.4.0" in HTML
-    assert "/static/app.js?v=0.4.0" in HTML
+    assert "v0.5.0" in HTML
+    assert "/static/style.css?v=0.5.0" in HTML
+    assert "/static/app.js?v=0.5.0" in HTML
 
 
 def test_signal_editor_actions_and_menu_exist():
@@ -77,7 +82,7 @@ def test_signal_editor_actions_and_menu_exist():
 
 
 def test_expanded_signal_layout_and_search():
-    for token in (".trace-details-grid", ".trace-expand-button",
+    for token in (".trace-details-table-wrap", ".trace-expand-button",
                   ".signal-inspector-controls", "max-height: 352px"):
         assert token in CSS
     assert "data-trace-collapse" in JS
@@ -96,4 +101,22 @@ def test_enum_import_and_occupied_map_controls():
         assert token in JS
     for token in (".signal-byte-bit.is-defined", ".signal-byte-bit.is-overlap",
                   ".signal-existing-chip", ".signal-choice-group"):
+        assert token in CSS
+
+
+def test_dense_trace_workbench_and_configurable_columns():
+    for token in ('id="traceDensity"', 'id="traceColumnPicker"',
+                  'id="traceHeaderRow"', 'id="traceColgroup"',
+                  'id="traceFilterId"', 'id="traceFilterChannel"',
+                  'id="traceFilterDirection"',
+                  'class="signal-inspector-table"'):
+        assert token in HTML
+    for token in ("function loadTraceLayout()", "function persistTraceLayout()",
+                  "function moveTraceColumn(", "function setTraceColumnVisible(",
+                  "function filteredSortedTraceFrames(", "function changeTraceSort(",
+                  "function initTraceLayoutControls(", "function renderTraceHeader("):
+        assert token in JS
+    for token in ("#trace .trace-data-table", "#trace .trace-column-resizer",
+                  "#trace.trace-compact", "#trace.trace-standard",
+                  "#trace .signal-inspector-table"):
         assert token in CSS

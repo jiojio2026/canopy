@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>CANopy</title>
-  <link rel="stylesheet" href="/static/style.css?v=0.4.0">
+  <link rel="stylesheet" href="/static/style.css?v=0.5.0">
 </head>
 <body>
 <div class="app-shell">
@@ -25,7 +25,7 @@
       <div class="sidebar-footer-title"><span class="status-pulse"></span> LOCAL WORKBENCH</div>
       <div>ZLG USBCANFD-200U</div>
       <div>Linux x86-64 · VCI ABI</div>
-      <span class="sidebar-version">v0.4.0</span>
+      <span class="sidebar-version">v0.5.0</span>
     </div>
   </aside>
   <div class="workspace">
@@ -84,20 +84,35 @@
   <article><div class="section-head"><div><div class="eyebrow">LIBRARY</div><h2>报文库</h2></div><span class="subtle-label">按仿真节点分组</span></div><div id="nodeActions"></div><div class="table-wrap"><table><thead><tr><th>节点/名称</th><th>通道</th><th>ID</th><th>类型</th><th>数据</th><th>周期</th><th>操作</th></tr></thead><tbody id="messageRows"></tbody></table></div></article>
 </section>
 
-<section id="trace" class="panel">
-  <div class="page-heading"><div><div class="eyebrow">LIVE CAPTURE / 实时抓包</div><h1>实时 Trace</h1><p>跟踪 CAN / CAN FD 报文，右键报文可定义字段并实时解码，无需 DBC 文件。</p></div></div>
+<section id="trace" class="panel trace-workbench">
+  <div class="page-heading trace-page-heading"><div><div class="eyebrow">CAPTURE / CAN BUS ANALYZER</div><h1>实时 Trace <span class="trace-page-suffix">· CAN / CAN FD</span></h1><p>双击浏览数据，点击 ID 查看信号，右键定义字段；界面布局可自定义。</p></div></div>
   <article class="trace-card">
     <div class="trace-toolbar">
-      <div class="trace-toolbar-title"><span class="live-dot"></span><div><h2>报文监视器</h2><p>实时观察与诊断 · 最新值 / 滚动视图</p></div></div>
+      <div class="trace-toolbar-title"><span class="live-dot"></span><div><h2>报文列表</h2><p>实时抓包 · 本地解析</p></div></div>
       <div class="trace-actions">
-        <label class="trace-mode-control"><span class="sr-only">视图模式</span><select id="traceMode" aria-label="Trace 视图模式" onchange="refreshTrace()"><option value="latest">最新值（稳定内存）</option><option value="scroll">滚动 Trace</option></select></label>
+        <label class="trace-filter-id"><span class="sr-only">按 CAN ID 筛选</span><input id="traceFilterId" type="search" inputmode="text" autocomplete="off" spellcheck="false" placeholder="过滤 ID，如 0x706" aria-label="过滤 CAN ID"></label>
+        <label class="trace-filter-channel"><span class="sr-only">通道筛选</span><select id="traceFilterChannel" aria-label="通道筛选"><option value="all">全部通道</option><option value="0">CAN0</option><option value="1">CAN1</option></select></label>
+        <label class="trace-filter-direction"><span class="sr-only">方向筛选</span><select id="traceFilterDirection" aria-label="方向筛选"><option value="all">RX / TX</option><option value="rx">仅 RX</option><option value="tx">仅 TX</option></select></label>
+        <label class="trace-mode-control"><span class="sr-only">Trace 视图模式</span><select id="traceMode" aria-label="Trace 视图模式" onchange="onTraceModeChange()"><option value="latest">最新值</option><option value="scroll">滚动 Trace</option></select></label>
         <button onclick="refreshTrace()">刷新</button>
         <button class="secondary" onclick="clearTrace()">清空</button>
         <a class="button secondary" href="/api/trace.csv">导出 CSV</a>
         <button type="button" class="secondary" onclick="openSignalLibrary()">信号库</button>
       </div>
+      <div class="trace-view-actions">
+        <label class="trace-density-control"><span class="sr-only">数据密度</span><select id="traceDensity" aria-label="数据密度"><option value="compact">紧凑</option><option value="standard">标准</option></select></label>
+        <details id="traceColumnPicker" class="trace-column-picker">
+          <summary>列设置</summary>
+          <div class="trace-column-popover">
+            <div class="trace-column-title">显示、排序与宽度</div>
+            <p>勾选显示列；使用上下按钮调整顺序；拖动表头右侧边缘调整宽度。</p>
+            <div id="traceColumnOptions"></div>
+            <button id="traceResetLayout" class="secondary" type="button">恢复默认布局</button>
+          </div>
+        </details>
+      </div>
     </div>
-    <div class="trace-info"><span><span class="live-dot small"></span> LIVE CAPTURE</span><span>当前显示 <strong id="traceVisibleCount">0</strong> 帧</span><span>点击解析信号的「展开全部」查看完整列表 · 点击 ID 打开信号监视器</span></div>
+    <div class="trace-info"><span><span class="live-dot small"></span> LIVE CAPTURE</span><span>显示 <strong id="traceVisibleCount">0</strong> 帧</span><span id="traceFilterStats">全部报文</span><span class="trace-shortcuts">点击表头排序 · 拖动列边界调整宽度 · 右键报文定义信号</span></div>
     <div class="signal-inspector" id="signalInspector" hidden>
       <div class="signal-inspector-head">
         <div><div class="eyebrow">SIGNAL INSPECTOR</div><h3 id="signalInspectorTitle">已选报文</h3><div class="hint" id="signalInspectorMeta"></div></div>
@@ -107,9 +122,20 @@
         <label class="signal-inspector-search"><span class="sr-only">搜索已解析的信号</span><input id="signalSearch" type="search" placeholder="搜索信号名称或单位…" autocomplete="off"></label>
         <span id="signalInspectorCount" aria-live="off">0 / 0 项信号</span>
       </div>
-      <div id="signalInspectorRows" class="signal-inspector-values"></div>
+      <div id="signalInspectorViewport" class="signal-inspector-table-wrap">
+        <table class="signal-inspector-table" aria-label="实时解码信号">
+          <thead><tr><th>信号名称</th><th>解析值 / 状态</th><th>Raw（原始值）</th><th>单位</th><th>故障 / 状态</th></tr></thead>
+          <tbody id="signalInspectorRows"></tbody>
+        </table>
+      </div>
     </div>
-    <div class="table-wrap trace"><table><thead><tr><th>Seq</th><th>时间</th><th>方向</th><th>通道</th><th>类型</th><th>ID</th><th>解析信号 <span class="trace-column-help">（点击展开全部）</span></th><th>标志</th><th>数据</th><th>Hz/周期</th></tr></thead><tbody id="traceRows"></tbody></table></div>
+    <div class="table-wrap trace" id="traceTableViewport">
+        <table id="traceTable" class="trace-data-table" aria-label="CAN 实时报文列表">
+          <colgroup id="traceColgroup"></colgroup>
+          <thead><tr id="traceHeaderRow"></tr></thead>
+          <tbody id="traceRows"></tbody>
+        </table>
+      </div>
   </article>
 </section>
 
@@ -222,5 +248,5 @@
     <p class="hint">你上传的 Linux x86-64 SDK Demo 使用设备类型 33，本工具默认按 33 打开；仅在失败时兼容尝试 41。内置 120Ω 只在该通道位于总线物理端点时开启。</p>
   </form>
 </dialog>
-<div id="toast"></div><script src="/static/app.js?v=0.4.0"></script>
+<div id="toast"></div><script src="/static/app.js?v=0.5.0"></script>
 </body></html>

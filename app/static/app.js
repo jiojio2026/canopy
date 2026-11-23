@@ -21,6 +21,248 @@ let wsReconnectTimer = null;
 const TRACE_RENDER_LIMIT = 1000;
 const TRACE_SCROLL_LIMIT = 3000;
 
+const TRACE_LAYOUT_KEY = 'canopy.trace.layout.v1';
+const TRACE_COLUMN_DEFS = [
+  {key:'seq', label:'Seq', width:86, min:60},
+  {key:'time', label:'时间', width:128, min:108},
+  {key:'direction', label:'方向', width:72, min:60},
+  {key:'channel', label:'通道', width:72, min:60},
+  {key:'kind', label:'类型', width:78, min:66},
+  {key:'id', label:'CAN ID', width:94, min:76},
+  {key:'signals', label:'解析信号', width:335, min:185},
+  {key:'flags', label:'标志', width:95, min:70},
+  {key:'data', label:'数据 HEX', width:440, min:180},
+  {key:'frequency', label:'Hz / 周期', width:156, min:114},
+];
+const TRACE_SORTABLE = new Set(TRACE_COLUMN_DEFS.map(c=>c.key));
+let traceSort = {key:'seq', direction:'desc'};
+let traceHeaderSignature = '';
+function defaultTraceLayout() {
+  return {density:'compact', columns:TRACE_COLUMN_DEFS.map(c=>({
+    key:c.key, visible:true, width:c.width,
+  }))};
+}
+function loadTraceLayout() {
+  const fallback = defaultTraceLayout();
+  try {
+    if (typeof localStorage === 'undefined') return fallback;
+    const saved = JSON.parse(localStorage.getItem(TRACE_LAYOUT_KEY) || 'null');
+    if (!saved || !Array.isArray(saved.columns)) return fallback;
+    const byKey = new Map(saved.columns.map(c => [c.key,c]));
+    const order = saved.columns.map(c=>c.key).filter((k,i,a)=>
+      TRACE_COLUMN_DEFS.some(d=>d.key===k) && a.indexOf(k)===i);
+    const columns = [...order, ...TRACE_COLUMN_DEFS.map(d=>d.key).filter(k=>!order.includes(k))]
+      .map(key=>{
+        const definition = TRACE_COLUMN_DEFS.find(d=>d.key===key);
+        const raw = byKey.get(key) || {};
+        const width = Number(raw.width);
+        return {key, visible:raw.visible !== false,
+          width:Number.isFinite(width) ? Math.max(definition.min,Math.min(900,Math.round(width))) : definition.width};
+      });
+    if (!columns.some(c=>c.visible)) columns.find(c=>c.key==='id').visible = true;
+    return {density:saved.density==='standard'?'standard':'compact',columns};
+  } catch { return fallback; }
+}
+let traceLayout = loadTraceLayout();
+function persistTraceLayout() {
+  try {
+    if (typeof localStorage !== 'undefined')
+      localStorage.setItem(TRACE_LAYOUT_KEY,JSON.stringify(traceLayout));
+  } catch { /* Private mode or storage quota: settings still apply this session. */ }
+}
+function visibleTraceColumns() {
+  return traceLayout.columns.filter(c=>c.visible);
+}
+function renderTraceColumnOptions() {
+  const target = $('#traceColumnOptions');
+  if (!target) return;
+  target.innerHTML = traceLayout.columns.map((c,i)=>{
+    const definition = TRACE_COLUMN_DEFS.find(d=>d.key===c.key);
+    return '<div class="trace-column-option" data-column-key="' + c.key + '">' +
+      '<label><input type="checkbox" data-trace-visible="' + c.key + '"' +
+      (c.visible?' checked':'') + '> ' + esc(definition.label) + '</label>' +
+      '<div class="trace-column-move">' +
+      '<button type="button" data-trace-move="' + c.key + '" data-delta="-1" '+
+      (i===0?'disabled':'')+' aria-label="上移 ' + esc(definition.label) + '">↑</button>' +
+      '<button type="button" data-trace-move="' + c.key + '" data-delta="1" '+
+      (i===traceLayout.columns.length-1?'disabled':'')+' aria-label="下移 ' + esc(definition.label) + '">↓</button>' +
+      '</div></div>';
+  }).join('');
+}
+function traceColumnChanged() {
+  traceHeaderSignature = '';
+  persistTraceLayout();
+  renderTraceColumnOptions();
+  renderTrace(lastTraceRows);
+}
+function setTraceColumnVisible(key,visible) {
+  const column = traceLayout.columns.find(c=>c.key===key);
+  if (!column) return;
+  if (!visible && visibleTraceColumns().length===1 && column.visible) {
+    toast('至少保留一列',true);
+    renderTraceColumnOptions();
+    return;
+  }
+  column.visible=Boolean(visible);
+  traceColumnChanged();
+}
+function moveTraceColumn(key,delta) {
+  const index = traceLayout.columns.findIndex(c=>c.key===key);
+  const next = index+delta;
+  if (index<0||next<0||next>=traceLayout.columns.length) return;
+  const [column] = traceLayout.columns.splice(index,1);
+  traceLayout.columns.splice(next,0,column);
+  traceColumnChanged();
+}
+function setTraceDensity(mode) {
+  traceLayout.density = mode==='standard'?'standard':'compact';
+  const panel = $('#trace');
+  panel.classList.toggle('trace-compact',traceLayout.density==='compact');
+  panel.classList.toggle('trace-standard',traceLayout.density==='standard');
+  $('#traceDensity').value=traceLayout.density;
+  persistTraceLayout();
+}
+function resetTraceLayout() {
+  traceLayout=defaultTraceLayout();
+  traceSort={key:'seq',direction:'desc'};
+  setTraceDensity(traceLayout.density);
+  traceColumnChanged();
+}
+function traceColumnDefinition(key) {
+  return TRACE_COLUMN_DEFS.find(d=>d.key===key);
+}
+function renderTraceHeader() {
+  const columns = visibleTraceColumns();
+  const signature=JSON.stringify([columns,traceSort]);
+  if (signature===traceHeaderSignature) return;
+  traceHeaderSignature=signature;
+  $('#traceColgroup').innerHTML=columns.map(c=>
+    '<col data-trace-col="'+c.key+'" style="width:'+c.width+'px">').join('');
+  $('#traceTable').style.width=columns.reduce((total,c)=>total+c.width,0)+'px';
+  $('#traceHeaderRow').innerHTML=columns.map(c=>{
+    const definition=traceColumnDefinition(c.key);
+    const direction=traceSort.key===c.key?(traceSort.direction==='asc'?' ▲':' ▼'):'';
+    return '<th scope="col" data-trace-col="'+c.key+'" ' +
+      'aria-sort="'+(traceSort.key===c.key?(traceSort.direction==='asc'?'ascending':'descending'):'none')+'">' +
+      '<button type="button" class="trace-header-sort" data-trace-sort="'+c.key+
+      '" title="点击排序">'+esc(definition.label)+'<span class="trace-sort-arrow">'+direction+'</span></button>' +
+      '<span class="trace-column-resizer" data-trace-resize="'+c.key+
+      '" role="separator" aria-label="调整 '+esc(definition.label)+' 列宽" tabindex="0"></span></th>';
+  }).join('');
+}
+function traceSortValue(frame,key) {
+  switch(key) {
+    case 'seq': return Number(frame.seq)||0;
+    case 'time': return Number(frame.timestamp_ns)||0;
+    case 'direction': return frame.direction||'';
+    case 'channel': return Number(frame.channel)||0;
+    case 'kind': return frame.frame_kind||'';
+    case 'id': return Number(frame.can_id)||0;
+    case 'signals': return (frame.decoded_signals||[])[0]?.name||'';
+    case 'flags': return [frame.extended,frame.remote,frame.brs,frame.esi].map(x=>x?1:0).join('');
+    case 'data': return frame.data_hex||'';
+    case 'frequency': return Number(frame.frequency_hz)||0;
+    default: return 0;
+  }
+}
+function filteredSortedTraceFrames(frames) {
+  const filter=$('#traceFilterId')?.value.trim()||'';
+  const channel=$('#traceFilterChannel')?.value||'all';
+  const direction=$('#traceFilterDirection')?.value||'all';
+  const isHex=/^0x[0-9a-f]+$/i.test(filter);
+  const isDecimal=/^[0-9]+$/.test(filter);
+  const id=filter?(isHex?parseInt(filter,16):isDecimal?Number(filter):NaN):null;
+  const visible=frames.filter(frame=>
+    (id===null||frame.can_id===id) &&
+    (channel==='all'||String(frame.channel)===channel) &&
+    (direction==='all'||frame.direction===direction));
+  const factor=traceSort.direction==='asc'?1:-1;
+  // Do not mutate the rolling buffer; it must stay in time order.
+  visible.sort((a,b)=>{
+    const x=traceSortValue(a,traceSort.key),y=traceSortValue(b,traceSort.key);
+    let cmp=(typeof x==='number'&&typeof y==='number')?x-y:String(x).localeCompare(String(y));
+    if (cmp===0) cmp=(Number(a.seq)||0)-(Number(b.seq)||0);
+    return cmp*factor;
+  });
+  return {visible,filterInvalid:Boolean(filter)&&!Number.isFinite(id)};
+}
+function changeTraceSort(key) {
+  if (!TRACE_SORTABLE.has(key)) return;
+  traceSort = traceSort.key===key
+    ? {key,direction:traceSort.direction==='asc'?'desc':'asc'}
+    : {key,direction:key==='seq'||key==='time'||key==='frequency'?'desc':'asc'};
+  traceHeaderSignature='';
+  renderTrace(lastTraceRows);
+}
+function applyTraceFilters() { renderTrace(lastTraceRows); }
+function onTraceModeChange() {
+  expandedTraceRowKey=null;
+  void refreshTrace(true);
+}
+function initTraceLayoutControls() {
+  setTraceDensity(traceLayout.density);
+  renderTraceColumnOptions();
+  $('#traceDensity').addEventListener('change',e=>setTraceDensity(e.target.value));
+  for (const id of ['traceFilterId','traceFilterChannel','traceFilterDirection'])
+    $('#'+id).addEventListener(id==='traceFilterId'?'input':'change',applyTraceFilters);
+  $('#traceColumnOptions').addEventListener('change',e=>{
+    if (e.target.matches('[data-trace-visible]'))
+      setTraceColumnVisible(e.target.dataset.traceVisible,e.target.checked);
+  });
+  $('#traceColumnOptions').addEventListener('click',e=>{
+    const btn=e.target.closest('[data-trace-move]');
+    if (btn) moveTraceColumn(btn.dataset.traceMove,Number(btn.dataset.delta));
+  });
+  $('#traceResetLayout').addEventListener('click',resetTraceLayout);
+  $('#traceHeaderRow').addEventListener('click',e=>{
+    const btn=e.target.closest('[data-trace-sort]');
+    if (btn) changeTraceSort(btn.dataset.traceSort);
+  });
+  let dragging=null;
+  const dragUpdate=e=>{
+    if (!dragging) return;
+    const column=traceLayout.columns.find(c=>c.key===dragging.key);
+    const def=traceColumnDefinition(dragging.key);
+    if (!column||!def) return;
+    column.width=Math.max(def.min,Math.min(900,dragging.width+e.clientX-dragging.x));
+    const col=$('#traceColgroup').querySelector('[data-trace-col="'+column.key+'"]');
+    if (col) col.style.width=column.width+'px';
+    $('#traceTable').style.width=visibleTraceColumns().reduce((total,c)=>total+c.width,0)+'px';
+  };
+  const dragEnd=()=>{
+    if (!dragging) return;
+    dragging=null;
+    document.removeEventListener('pointermove',dragUpdate);
+    document.removeEventListener('pointerup',dragEnd);
+    document.removeEventListener('pointercancel',dragEnd);
+    traceHeaderSignature=''; // Width is reflected on next snapshot.
+    persistTraceLayout();
+  };
+  $('#traceHeaderRow').addEventListener('pointerdown',e=>{
+    const grip=e.target.closest('[data-trace-resize]');
+    if (!grip||e.button!==0) return;
+    const column=traceLayout.columns.find(c=>c.key===grip.dataset.traceResize);
+    if (!column) return;
+    e.preventDefault();
+    e.stopPropagation();
+    dragging={key:column.key,x:e.clientX,width:column.width};
+    document.addEventListener('pointermove',dragUpdate);
+    document.addEventListener('pointerup',dragEnd);
+    document.addEventListener('pointercancel',dragEnd);
+  });
+  $('#traceHeaderRow').addEventListener('keydown',e=>{
+    const grip=e.target.closest('[data-trace-resize]');
+    if (!grip||!['ArrowLeft','ArrowRight'].includes(e.key)) return;
+    e.preventDefault();
+    const column=traceLayout.columns.find(c=>c.key===grip.dataset.traceResize);
+    const def=traceColumnDefinition(column?.key);
+    if (!column||!def) return;
+    column.width=Math.max(def.min,Math.min(900,column.width+(e.key==='ArrowRight'?20:-20)));
+    traceColumnChanged();
+  });
+}
+
+
 function traceIsVisible() {
   return !document.hidden && $('#trace').classList.contains('active');
 }
@@ -392,18 +634,25 @@ function decodedSignalSummary(frame) {
 function renderExpandedTraceSignals(frame) {
   const signals = frame.decoded_signals || [];
   if (!signals.length) return '';
-  return '<tr class="trace-details-row"><td colspan="10"><div class="trace-details">' +
-    '<div class="trace-details-head"><strong>CAN' + esc(frame.channel) + ' / ' + hex(frame.can_id) +
-    ' · 全部解析信号（' + signals.length + '）</strong>' +
-    '<button type="button" class="secondary" data-trace-collapse>收起</button></div>' +
-    '<div class="trace-details-grid">' + signals.map(s =>
-      '<div class="trace-details-item' + (s.error ? ' signal-has-error' : isActiveBitfield(s) ? ' signal-flag-active' : '') + '">' +
-      '<span class="trace-details-name">' + esc(s.name) + '</span>' +
-      '<strong class="trace-details-value">' + esc(signalDisplayText(s)) +
-      (s.unit && !s.error ? ' <small>' + esc(s.unit) + '</small>' : '') + '</strong>' +
-      '<span class="trace-details-raw">' +
-        esc(s.error || 'Raw: ' + (s.raw ?? '—') + ' · ' + (s.raw_hex ?? '—')) +
-      '</span></div>').join('') + '</div></div></td></tr>';
+  const rows = signals.map(s=>{
+    const status=s.error ? '解码错误' : isActiveBitfield(s) ? '故障标志' :
+      s.display_mode==='enum' ? '枚举' : s.display_mode==='bitfield' ? '无活动故障' : '数值';
+    return '<tr class="trace-details-signal'+(s.error?' signal-has-error':'')+
+      (isActiveBitfield(s)?' signal-flag-active':'')+'">' +
+      '<td>'+esc(s.name)+'</td>' +
+      '<td class="trace-detail-value" title="'+esc(signalDisplayText(s))+'">'+esc(signalDisplayText(s))+'</td>' +
+      '<td class="cell-mono">'+esc(s.raw ?? '—')+'</td>' +
+      '<td class="cell-mono">'+esc(s.raw_hex ?? '—')+'</td>' +
+      '<td>'+esc(s.unit || '—')+'</td>' +
+      '<td>'+esc(s.error || status)+'</td></tr>';
+  }).join('');
+  return '<tr class="trace-details-row"><td colspan="'+visibleTraceColumns().length+'">' +
+    '<div class="trace-details"><div class="trace-details-head"><strong>CAN'+
+    esc(frame.channel)+' / '+hex(frame.can_id)+' · 全部解析信号（'+signals.length+'）</strong>'+
+    '<button type="button" class="secondary" data-trace-collapse>收起</button></div>'+
+    '<div class="trace-details-table-wrap"><table class="trace-details-table"><thead><tr>'+
+    '<th>信号名称</th><th>解析值 / 状态</th><th>Raw</th><th>Hex</th><th>单位</th><th>类型 / 故障</th>'+
+    '</tr></thead><tbody>'+rows+'</tbody></table></div></div></td></tr>';
 }
 function toggleTraceSignalDetails(frame) {
   if (!frame || !(frame.decoded_signals || []).length) return;
@@ -442,18 +691,30 @@ function renderSignalInspector() {
   const count = $('#signalInspectorCount');
   if (count) count.textContent = visible.length + ' / ' + signals.length + ' 项信号';
   const container = $('#signalInspectorRows');
-  const previousScroll = container.scrollTop;
+  const viewport = $('#signalInspectorViewport');
+  const previousScroll = viewport.scrollTop;
+  const previousBodyScroll = container.scrollTop;
   container.innerHTML = visible.length
-    ? visible.map(s => '<div class="signal-value"><div class="signal-name">' + esc(s.name) + '</div>' +
-      '<div class="signal-number' + (s.display !== null && s.display !== undefined ? ' has-label' : '') +
-      (isActiveBitfield(s) ? ' signal-flag-active' : '') + '">' + esc(signalDisplayText(s)) +
-      ' <small>' + esc(s.unit) + '</small></div><div class="signal-raw">' +
-      esc(s.error || 'Raw: ' + (s.raw ?? '—') + ' / ' + (s.raw_hex ?? '—')) + '</div></div>').join('')
-    : '<p class="signal-empty">' + (search && signals.length ? '未找到匹配的信号。' :
-      definitions.length ? '正在等待解码数据；收到新帧后自动更新。' :
-      '尚未定义信号。点击“+ 定义信号”，选择起始位、长度和数据类型。') + '</p>';
-  // Do not jump to the top of a long signal list on every live update.
-  container.scrollTop = previousScroll;
+    ? visible.map(s => {
+      const status = s.error ? '解码失败' : isActiveBitfield(s) ? '故障标志' :
+        s.display_mode === 'enum' ? '枚举' :
+        s.display_mode === 'bitfield' ? '无活动故障' : '数值';
+      return '<tr class="signal-inspector-row' +
+        (s.error ? ' signal-has-error' : isActiveBitfield(s) ? ' signal-flag-active' : '') + '">' +
+        '<td class="signal-inspector-name">'+esc(s.name)+'</td>' +
+        '<td class="signal-inspector-value" title="'+esc(signalDisplayText(s))+'">'+esc(signalDisplayText(s))+'</td>' +
+        '<td class="cell-mono" title="'+esc((s.raw ?? '—')+' / '+(s.raw_hex ?? '—'))+'">'+
+        esc(s.raw_hex ?? s.raw ?? '—')+'</td>'+
+        '<td>'+esc(s.unit || '—')+'</td>'+
+        '<td class="signal-inspector-status" title="'+esc(s.error || status)+'">'+esc(s.error || status)+'</td></tr>';
+    }).join('')
+    : '<tr><td colspan="5" class="signal-empty">' +
+      (search && signals.length ? '未找到匹配的信号。' :
+        definitions.length ? '正在等待解码数据；收到新帧后自动更新。' :
+        '尚未定义信号。点击“+ 定义信号”，选择起始位、长度和数据类型。') + '</td></tr>';
+  // Keep the current place while values update.
+  viewport.scrollTop = previousScroll;
+  container.scrollTop = previousBodyScroll;
 }
 function refreshSelectedSignalFrame(rows) {
   if (!selectedSignalFrame || $('#signalInspector').hidden) return;
@@ -790,6 +1051,7 @@ async function deleteSignalDefinition(key) {
   } catch (e) { toast(e.message, true); }
 }
 function initializeSignalUI() {
+  initTraceLayoutControls();
   const rows = $('#traceRows');
   rows.addEventListener('click', e => {
     if (e.target.closest('[data-trace-collapse]')) {
@@ -799,7 +1061,10 @@ function initializeSignalUI() {
     const row = e.target.closest('tr[data-seq]');
     if (!row) return;
     if (e.target.closest('[data-trace-expand]')) toggleTraceSignalDetails(signalFrameForRow(row));
-    else if (e.target.closest('.trace-id-button')) selectTraceFrame(signalFrameForRow(row));
+    else if (e.target.closest('.trace-id-button')) {
+      selectTraceFrame(signalFrameForRow(row));
+      renderTrace(lastTraceRows);
+    }
   });
   rows.addEventListener('contextmenu', e => {
     const row = e.target.closest('tr[data-seq]');
@@ -854,34 +1119,55 @@ function initializeSignalUI() {
 const traceClock = new Intl.DateTimeFormat(undefined, {
   hour: '2-digit', minute: '2-digit', second: '2-digit', fractionalSecondDigits: 3,
 });
+function traceCell(frame,key,flags,data,title) {
+  const cell = (content,cls='',tip='') =>
+    '<td class="trace-cell trace-cell-'+key+(cls?' '+cls:'')+'"'+
+    (tip?' title="'+esc(tip)+'"':'')+'>'+content+'</td>';
+  switch (key) {
+    case 'seq': return cell(esc(frame.seq),'cell-mono');
+    case 'time': return cell(traceClock.format(Math.floor(Number(frame.timestamp_ns)/1e6)),'cell-mono');
+    case 'direction': return cell('<span class="frame-direction '+esc(frame.direction)+'">'+
+      esc(frame.direction)+'</span>');
+    case 'channel': return cell(esc(frame.frame_kind==='lin'?'LIN'+frame.channel:'CAN'+frame.channel));
+    case 'kind': return cell(esc(frame.frame_kind));
+    case 'id': return cell('<button class="trace-id-button" type="button" title="点击查看解析，右键定义信号">'+
+      hex(frame.can_id)+'</button>');
+    case 'signals': return cell(decodedSignalSummary(frame),'signal-summary',title);
+    case 'flags': return cell(esc(flags));
+    case 'data': return cell(esc(data),'cell-data',data);
+    case 'frequency': return cell(frame.frequency_hz?
+      Number(frame.frequency_hz).toFixed(1)+' Hz / '+Number(frame.period_ms).toFixed(2)+' ms' : '—',
+      'cell-frequency');
+    default: return '';
+  }
+}
 function renderTrace(rows) {
   lastTraceRows = rows.slice(-TRACE_RENDER_LIMIT);
+  renderTraceHeader();
+  const {visible,filterInvalid} = filteredSortedTraceFrames(lastTraceRows);
+  const columns=visibleTraceColumns();
   if (expandedTraceRowKey !== null &&
-      !lastTraceRows.some(f => traceRowKey(f) === expandedTraceRowKey)) {
-    expandedTraceRowKey = null;
+      !visible.some(f=>traceRowKey(f)===expandedTraceRowKey)) {
+    expandedTraceRowKey=null;
   }
-  $('#traceRows').innerHTML = lastTraceRows.slice().reverse().map(f => {
-    const flags = [f.extended?'EXT':'', f.remote?'RTR':'', f.brs?'BRS':'', f.esi?'ESI':''].filter(Boolean).join(' ') || '—';
-    const data = f.data_hex || (f.data||[]).map(x => x.toString(16).padStart(2,'0')).join(' ').toUpperCase();
-    const title = (f.decoded_signals||[]).map(s =>
-      s.name + ': ' + (s.error || signalDisplayText(s)) + ' ' + s.unit).join(' | ');
-    const open = expandedTraceRowKey === traceRowKey(f) && (f.decoded_signals || []).length > 0;
-    return '<tr data-seq="' + esc(f.seq) + '"' + (open ? ' class="trace-expanded-parent"' : '') + '>' +
-      '<td>' + esc(f.seq) + '</td>' +
-      '<td class="cell-mono">' + traceClock.format(Math.floor(Number(f.timestamp_ns)/1e6)) + '</td>' +
-      '<td><span class="frame-direction ' + esc(f.direction) + '">' + esc(f.direction) + '</span></td>' +
-      '<td>' + esc(f.frame_kind==='lin'?'LIN'+f.channel:'CAN'+f.channel) + '</td>' +
-      '<td>' + esc(f.frame_kind) + '</td>' +
-      '<td><button class="trace-id-button" type="button" title="点击查看解析，右键定义信号">' + hex(f.can_id) + '</button></td>' +
-      '<td class="signal-summary" title="' + esc(title) + '">' + decodedSignalSummary(f) + '</td>' +
-      '<td>' + esc(flags) + '</td>' +
-      '<td class="cell-data">' + esc(data) + '</td>' +
-      '<td class="cell-frequency">' + (f.frequency_hz ? Number(f.frequency_hz).toFixed(1) + ' Hz / ' +
-        Number(f.period_ms).toFixed(2) + ' ms' : '—') + '</td></tr>' +
-      (open ? renderExpandedTraceSignals(f) : '');
+  $('#traceRows').innerHTML = visible.map(f=>{
+    const flags = [f.extended?'EXT':'',f.remote?'RTR':'',f.brs?'BRS':'',f.esi?'ESI':'']
+      .filter(Boolean).join(' ')||'—';
+    const data=f.data_hex||(f.data||[]).map(x=>x.toString(16).padStart(2,'0')).join(' ').toUpperCase();
+    const title=(f.decoded_signals||[]).map(s=>s.name+': '+(s.error||signalDisplayText(s))+' '+s.unit).join(' | ');
+    const open=expandedTraceRowKey===traceRowKey(f)&&(f.decoded_signals||[]).length>0;
+    const selected=selectedSignalFrame&&signalIdentity(f)===signalIdentity(selectedSignalFrame);
+    return '<tr data-seq="'+esc(f.seq)+'"'+
+      (open?' class="trace-expanded-parent"':selected?' class="trace-selected-row"':'')+'>'+
+      columns.map(c=>traceCell(f,c.key,flags,data,title)).join('')+'</tr>'+
+      (open?renderExpandedTraceSignals(f):'');
   }).join('');
-  const count = $('#traceVisibleCount');
-  if (count) count.textContent = String(lastTraceRows.length);
+  const count=$('#traceVisibleCount');
+  if (count) count.textContent=String(visible.length);
+  const stats=$('#traceFilterStats');
+  if (stats) stats.textContent=filterInvalid?'CAN ID 格式无效':
+    visible.length===lastTraceRows.length?'全部报文':
+      '筛选 '+visible.length+' / '+lastTraceRows.length+' 帧';
   refreshSelectedSignalFrame(lastTraceRows);
 }
 function scheduleScrollRender() {

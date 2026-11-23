@@ -22,6 +22,10 @@ function harness() {
     return elements.get(selector);
   }
   element('#traceMode').value = 'latest';
+  element('#traceFilterId').value = '';
+  element('#traceFilterChannel').value = 'all';
+  element('#traceFilterDirection').value = 'all';
+  element('#traceDensity').value = 'compact';
   class FakeSocket {
     static OPEN = 1;
     static CONNECTING = 0;
@@ -152,9 +156,10 @@ test('Trace keeps the summary compact and expands all decoded signals in one det
   assert.ok(html.includes('全部解析信号（24）'));
   assert.ok(html.includes('Signal_23'));
   assert.ok(html.includes('23.25'));
-  assert.equal((html.match(/class="trace-details-item/g) || []).length, 24);
+  assert.equal((html.match(/class="trace-details-signal/g) || []).length, 24);
   assert.equal((html.match(/class="trace-details-row"/g) || []).length, 1);
-  assert.equal((html.match(/<tr\b/g) || []).length, 2);
+  assert.equal((html.match(/class="trace-details-row"/g) || []).length, 1);
+  assert.equal((html.match(/class="trace-details-signal/g) || []).length, 24);
   assert.equal(h.elements.get('#traceVisibleCount').textContent, '1');
 
   // In latest mode, the same CAN frame should remain expanded as seq changes.
@@ -305,4 +310,105 @@ test('Import saved JSON merges definitions and refreshes library without hardwar
   assert.equal(requests[0].options.body.definitions.length, 1);
   assert.equal(h.ctx.document.querySelector('#signalImportResult').textContent.includes('新增 1'), true);
   assert.ok(h.ctx.document.querySelector('#signalLibraryRows').innerHTML.includes('MotorState'));
+});
+
+
+test('Wireshark-style Trace filters by numeric CAN ID, channel and direction without mutating history', () => {
+  const h = harness();
+  const rows = [
+    {...decodedFrame(1,2,0x706),channel:1,direction:'rx'},
+    {...decodedFrame(2,2,0x705),channel:0,direction:'tx'},
+    {...decodedFrame(3,2,0x706),channel:0,direction:'rx'},
+    {...decodedFrame(4,2,0x706),channel:1,direction:'tx'},
+  ];
+  h.ctx.document.querySelector('#traceFilterId').value='0x706';
+  h.ctx.document.querySelector('#traceFilterChannel').value='1';
+  h.ctx.document.querySelector('#traceFilterDirection').value='rx';
+  h.ctx.renderTrace(rows);
+  let html=h.elements.get('#traceRows').innerHTML;
+  assert.equal((html.match(/data-seq="/g)||[]).length,1);
+  assert.ok(html.includes('data-seq="1"'));
+  assert.equal(h.elements.get('#traceVisibleCount').textContent,'1');
+  assert.equal(vm.runInContext('lastTraceRows.length',h.ctx),4);
+  h.ctx.document.querySelector('#traceFilterId').value='';
+  h.ctx.document.querySelector('#traceFilterChannel').value='all';
+  h.ctx.document.querySelector('#traceFilterDirection').value='all';
+  h.ctx.applyTraceFilters();
+  html=h.elements.get('#traceRows').innerHTML;
+  assert.equal((html.match(/data-seq="/g)||[]).length,4);
+  assert.ok(html.indexOf('data-seq="4"')<html.indexOf('data-seq="1"'));
+});
+
+test('Trace sort toggles order and does not change the rolling data sequence', () => {
+  const h=harness();
+  const rows=[decodedFrame(1,1,0x706),decodedFrame(2,1,0x504),
+    decodedFrame(3,1,0x705)];
+  h.ctx.renderTrace(rows);
+  h.ctx.changeTraceSort('id');
+  let html=h.elements.get('#traceRows').innerHTML;
+  assert.ok(html.indexOf('data-seq="2"')<html.indexOf('data-seq="3"'));
+  h.ctx.changeTraceSort('id');
+  html=h.elements.get('#traceRows').innerHTML;
+  assert.ok(html.indexOf('data-seq="1"')<html.indexOf('data-seq="3"'));
+  assert.deepEqual(Array.from(vm.runInContext('lastTraceRows.map(f=>f.seq)',h.ctx)),[1,2,3]);
+});
+
+test('Trace columns can be hidden, reordered, resized and persist to browser layout settings', () => {
+  const h=harness();
+  const data=new Map();
+  h.ctx.localStorage={
+    getItem:key=>data.has(key)?data.get(key):null,
+    setItem:(key,value)=>data.set(key,value),
+  };
+  const frame=decodedFrame(1,3);
+  h.ctx.renderTrace([frame]);
+  h.ctx.setTraceColumnVisible('data',false);
+  let html=h.elements.get('#traceRows').innerHTML;
+  assert.ok(!html.includes('class="trace-cell trace-cell-data"'));
+  assert.ok(html.includes('class="trace-cell trace-cell-id"'));
+  h.ctx.moveTraceColumn('signals',-1);
+  h.ctx.toggleTraceSignalDetails(frame);
+  html=h.elements.get('#traceRows').innerHTML;
+  const cols=vm.runInContext('visibleTraceColumns()',h.ctx);
+  assert.equal(cols.length,9);
+  assert.ok(html.includes('colspan="9"'));
+  const before=vm.runInContext('traceLayout.columns.find(c=>c.key==="id").width',h.ctx);
+  vm.runInContext('traceLayout.columns.find(c=>c.key==="id").width=190',h.ctx);
+  h.ctx.traceColumnChanged();
+  assert.ok(h.elements.get('#traceColgroup').innerHTML.includes('width:190px'));
+  const saved=JSON.parse(data.get('canopy.trace.layout.v1'));
+  assert.ok(saved.columns.some(c=>c.key==='data'&&c.visible===false));
+  assert.ok(saved.columns.some(c=>c.key==='id'&&c.width===190));
+  const loaded=h.ctx.loadTraceLayout();
+  assert.equal(loaded.columns.find(c=>c.key==='id').width,190);
+  assert.ok(before<190);
+  h.ctx.resetTraceLayout();
+  assert.equal(h.ctx.loadTraceLayout().columns.filter(c=>c.visible).length,10);
+});
+
+test('Trace never allows all columns to be hidden', () => {
+  const h=harness();
+  for (const key of ['seq','time','direction','channel','kind','signals','flags','data','frequency'])
+    h.ctx.setTraceColumnVisible(key,false);
+  h.ctx.setTraceColumnVisible('id',false);
+  assert.deepEqual(Array.from(vm.runInContext('visibleTraceColumns().map(c=>c.key)',h.ctx)),['id']);
+});
+
+test('Signal inspector uses a compact table with raw/enum/bitfield labels', () => {
+  const h=harness();
+  const frame=decodedFrame(3,3);
+  frame.decoded_signals=[
+    {name:'Position',value:1.25,display:null,raw:'125',raw_hex:'0x7D',unit:'°'},
+    {name:'ControlMode',value:0,display:'MIT',display_mode:'enum',raw:'0',raw_hex:'0x0'},
+    {name:'Fault',value:16,display:'编码器故障',display_mode:'bitfield',
+      raw:'16',raw_hex:'0x10',active_flags:['编码器故障'],unit:''},
+  ];
+  h.ctx.selectTraceFrame(frame);
+  const html=h.elements.get('#signalInspectorRows').innerHTML;
+  assert.equal((html.match(/<tr\b/g)||[]).length,3);
+  assert.ok(html.includes('0x10'));
+  assert.ok(html.includes('编码器故障'));
+  assert.ok(html.includes('MIT'));
+  assert.ok(html.includes('Position'));
+  assert.ok(!html.includes('class="signal-value"'));
 });

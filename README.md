@@ -8,7 +8,7 @@ CANopy turns a Linux computer and a ZLG USBCANFD-200U into a local web CAN tool.
 
 ## Features
 
-The v0.4.0 interface uses a responsive sidebar, a device-status toolbar, consistent work areas for all five modules, and a wider, more readable Trace table. The mobile layout keeps the original device controls and horizontally scrollable data tables.
+The v0.5.0 interface uses a responsive sidebar, a device-status toolbar, and a Wireshark-inspired high-density Trace workbench with a compact decoded-signal table. The mobile layout keeps the original device controls and horizontally scrollable data tables.
 
 
 - CAN0/CAN1 dual-channel operation
@@ -16,6 +16,8 @@ The v0.4.0 interface uses a responsive sidebar, a device-status toolbar, consist
 - Standard/extended frames, remote frames, BRS, ESI and self reception
 - Up to 64-byte CAN FD payloads
 - Live Trace, latest-value view, rolling view and CSV export
+- Wireshark-style Trace table: compact (32 px) / standard row density, sortable headers, ID/channel/RX-TX filters, draggable column widths and hide/reorder column controls (saved to browser localStorage)
+- Signal Inspector and expanded signal details use dense tables, retaining raw values, enum/bitfield labels, search and independent scrolling
 - Built-in custom signal editor: right-click a Trace frame to define bits, endian, signed/unsigned/IEEE754, Factor/Offset and unit; Enum/Bitfield state labels and fault flags; occupied-bit highlighting and JSON library import/export without a DBC
 - Message library, simulation nodes and software periodic transmission
 - 120 Ω termination control and transmission timeout
@@ -27,6 +29,19 @@ The v0.4.0 interface uses a responsive sidebar, a device-status toolbar, consist
 - Bounded receive buffers and batched WebSocket updates
 - Long-running Trace protection: at most 3,000 buffered browser frames and 1,000 displayed rows; only one HTTP snapshot in flight; WebSocket streaming pauses when Trace is hidden
 - Mock backend for UI development without hardware
+
+## Wireshark-style Trace layout (v0.5.0)
+
+Use **实时 Trace** for high-density CAN/CAN FD capture.
+
+- **Filter** using a numeric CAN ID (e.g. `0x706` or decimal `1798`), a channel, and RX/TX; these only affect the browser view, **not** the captured frames or CSV export. Clear the filter to show all frames in the bounded snapshot.
+- **Sort** by clicking any column heading, including CAN ID, timestamp, frequency and signal name. Click it again to reverse direction. The underlying capture order is unchanged.
+- **Density** defaults to *紧凑* (approximately 32 px per row). Select *标准* to increase spacing.
+- **Columns**: open *列设置* to show/hide columns, move them up/down, or restore the default layout. Drag the narrow right border of a header to resize its column; keyboard users can focus the separator and press Left/Right arrows.
+- **Persistence**: density, visible columns, widths and order are saved in your browser's `localStorage` under `canopy.trace.layout.v1`. They do not modify device configuration or signal definitions. Sorting and filters are temporary to the current browser session.
+- **Signal Inspector**: click a CAN ID for a searchable, compact five-column table (name, decoded value, raw hex, unit, status). *展开全部* below a packet opens a second compact table. Only one packet can be expanded at a time.
+
+Original CAN/CAN FD decoding, right-click signal definition, full raw payload, 1,000 displayed-frame / 3,000 rolling-frame limits and WebSocket visibility pausing are retained. The entire Trace table still redraws on scheduled updates; longer-term virtualization and very-high-rate browser profiling remain potential improvements.
 
 ## Custom signal editor (no DBC required)
 

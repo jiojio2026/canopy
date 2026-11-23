@@ -7,7 +7,7 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from app.models import *
 from app.store import TraceStore, JsonState
-from app.signal_decoder import SignalDefinition, SignalPreview, SignalRegistry, decode_signal
+from app.signal_decoder import SignalDefinition, SignalPreview, SignalImport, SignalRegistry, decode_signal
 from app.scheduler import SoftwareScheduler
 from app.drivers.base import DriverError
 from app.drivers.mock import MockDriver
@@ -46,7 +46,7 @@ def enqueue_live(frame):
 driver=MockDriver(frame_callback) if config.driver=="mock" or os.getenv("MOCK_CAN")=="1" else ZlgCanDriver(frame_callback)
 scheduler=SoftwareScheduler(lambda frame: send_frame(frame) if driver.status().get("opened",False) else 0)
 scheduler.sync(messages)
-app=FastAPI(title="CANopy",version="0.3.1")
+app=FastAPI(title="CANopy",version="0.4.0")
 app.mount("/static",StaticFiles(directory=str(ROOT/"static")),name="static")
 
 @app.middleware("http")
@@ -73,7 +73,7 @@ async def shutdown():
 @app.get("/")
 def index(): return FileResponse(ROOT/"static/index.html")
 @app.get("/api/version")
-def version(): return ok({"version":"0.3.1","sdk":"usbcanfd_libusb_x64_1.0.15_260827"})
+def version(): return ok({"version":"0.4.0","sdk":"usbcanfd_libusb_x64_1.0.15_260827"})
 
 def ok(data=None,message=""): return APIResult(ok=True,data=data,message=message).dict()
 def fail(e):
@@ -261,6 +261,11 @@ def list_signals():
 def export_signals():
     body=json.dumps(signal_registry.list(),ensure_ascii=False,indent=2).encode("utf-8")
     return Response(body,media_type="application/json",headers={"Content-Disposition":"attachment; filename=canopy-signals.json"})
+
+@app.post("/api/signals/import")
+def import_signals(payload:SignalImport):
+    try: return ok(signal_registry.import_many(payload.definitions,payload.conflict,state))
+    except Exception as e: fail(e)
 
 @app.post("/api/signals")
 def save_signal(definition:SignalDefinition):

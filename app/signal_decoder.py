@@ -10,7 +10,7 @@ import struct
 import threading
 import uuid
 from collections import defaultdict
-from typing import List, Literal
+from typing import Dict, List, Literal
 
 from pydantic import BaseModel, Field, root_validator, validator
 
@@ -41,6 +41,8 @@ class SignalDefinition(BaseModel):
     offset: float = 0.0
     unit: str = Field("", max_length=32)
     notes: str = Field("", max_length=256)
+    display_mode: Literal["number", "enum", "bitfield"] = "number"
+    choices: Dict[str, str] = Field(default_factory=dict)
 
     @validator("name", "unit", "notes")
     def trim_text(cls, value):
@@ -50,6 +52,21 @@ class SignalDefinition(BaseModel):
     def finite_value(cls, value):
         if not math.isfinite(value):
             raise ValueError("比例因子和偏移量必须是有限数")
+        return value
+
+    @validator("choices")
+    def validate_choices(cls, value):
+        if len(value) > 64:
+            raise ValueError("最多定义 64 个枚举或标志项")
+        seen = set()
+        for key, label in value.items():
+            try:
+                parsed = int(key, 16) if key.lower().startswith("0x") else int(key, 10)
+            except (TypeError, ValueError):
+                raise ValueError("映射值必须是十进制整数或 0x 十六进制整数")
+            if parsed < 0 or parsed in seen or not label.strip() or len(label) > 80:
+                raise ValueError("映射值不得重复，描述需为 1～80 字符")
+            seen.add(parsed)
         return value
 
     @root_validator(skip_on_failure=True)
@@ -62,11 +79,37 @@ class SignalDefinition(BaseModel):
             raise ValueError("float32 必须使用 32 位长度")
         if kind == "float64" and size != 64:
             raise ValueError("float64 必须使用 64 位长度")
+        mode = values.get("display_mode", "number")
+        choices = values.get("choices", {})
+        if mode != "number":
+            if kind != "unsigned" or values.get("factor") != 1 or values.get("offset") != 0:
+                raise ValueError("Enum 和 Bitfield 要求 Unsigned、Factor=1、Offset=0")
+            if not choices:
+                raise ValueError("Enum / Bitfield 至少需要一条映射")
+            max_code = (1 << size) - 1
+            for code in choices:
+                bit_or_code = int(code, 16) if code.lower().startswith("0x") else int(code)
+                if mode == "enum" and bit_or_code > max_code:
+                    raise ValueError("枚举值超出信号位宽")
+                if mode == "bitfield" and bit_or_code >= size:
+                    raise ValueError("标志位序号超出信号位宽")
+        elif choices:
+            raise ValueError("数值模式不能配置 Enum/Bitfield 映射")
         positions = bit_positions(values["start_bit"], size, values["byte_order"])
         capacity = 64 if values["frame_kind"] == "canfd" else 8
         if not positions or max(positions) >= capacity * 8:
             raise ValueError("信号位范围超出了报文最大数据长度")
         return values
+
+
+class SignalImport(BaseModel):
+    definitions: List[SignalDefinition] = Field(..., max_items=512)
+    conflict: Literal["skip", "overwrite"] = "skip"
+
+
+def choice_mapping(choices):
+    return {int(code, 16) if code.lower().startswith("0x") else int(code, 10): label
+            for code, label in choices.items()}
 
 
 class SignalPreview(BaseModel):
@@ -108,8 +151,20 @@ def decode_signal(signal: SignalDefinition, data):
     physical = raw_value * signal.factor + signal.offset
     if not math.isfinite(physical):
         output["error"] = "解码值不是有限数"
+        return output
+    output["value"] = physical
+    output["display_mode"] = signal.display_mode
+    if signal.display_mode == "enum":
+        labels = choice_mapping(signal.choices)
+        output["display"] = labels.get(raw_bits, "未知枚举值 " + output["raw_hex"])
+    elif signal.display_mode == "bitfield":
+        labels = choice_mapping(signal.choices)
+        active = [labels.get(bit, "Bit{}（未定义）".format(bit))
+                  for bit in range(signal.bit_length) if raw_bits & (1 << bit)]
+        output["active_flags"] = active
+        output["display"] = "、".join(active) if active else "无活动标志"
     else:
-        output["value"] = physical
+        output["display"] = None
     return output
 
 
@@ -162,6 +217,48 @@ class SignalRegistry:
             self.definitions = updated
             self._reindex()
             return definition.dict()
+
+    def import_many(self, definitions: List[SignalDefinition], conflict="skip", state=None):
+        """Atomic merge of a saved library, resolving conflicts by message identity + signal name.
+
+        Keys from external files are ignored so they cannot accidentally overwrite unrelated
+        local definitions. All validation and persistence complete before the live index changes.
+        """
+        if conflict not in ("skip", "overwrite") or len(definitions) > self.MAX_SIGNALS:
+            raise ValueError("不支持的导入策略或信号数量超出限制")
+        with self.lock:
+            updated = dict(self.definitions)
+            identity_map = {
+                (d.channel, d.frame_kind, d.can_id, d.extended, d.name): key
+                for key, d in updated.items()
+            }
+            seen = set()
+            added = overwritten = skipped = 0
+            for item in definitions:
+                identity = (item.channel, item.frame_kind, item.can_id, item.extended, item.name)
+                if identity in seen:
+                    raise ValueError("导入文件存在重复信号：" + item.name)
+                seen.add(identity)
+                existing_key = identity_map.get(identity)
+                if existing_key is not None:
+                    if conflict == "skip":
+                        skipped += 1
+                        continue
+                    updated[existing_key] = item.copy(update={"key": existing_key})
+                    overwritten += 1
+                    continue
+                if len(updated) >= self.MAX_SIGNALS:
+                    raise ValueError("合并后信号数量不得超过 512")
+                fresh_key = str(uuid.uuid4())
+                updated[fresh_key] = item.copy(update={"key": fresh_key})
+                identity_map[identity] = fresh_key
+                added += 1
+            if state is not None:
+                state.save("signals.json", [entry.dict() for entry in updated.values()])
+            self.definitions = updated
+            self._reindex()
+            return {"added": added, "overwritten": overwritten, "skipped": skipped,
+                    "total": len(updated)}
 
     def remove(self, key: str, state=None):
         with self.lock:

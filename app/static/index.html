@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>CANopy</title>
-  <link rel="stylesheet" href="/static/style.css?v=0.3.1">
+  <link rel="stylesheet" href="/static/style.css?v=0.4.0">
 </head>
 <body>
 <div class="app-shell">
@@ -25,7 +25,7 @@
       <div class="sidebar-footer-title"><span class="status-pulse"></span> LOCAL WORKBENCH</div>
       <div>ZLG USBCANFD-200U</div>
       <div>Linux x86-64 · VCI ABI</div>
-      <span class="sidebar-version">v0.3.1</span>
+      <span class="sidebar-version">v0.4.0</span>
     </div>
   </aside>
   <div class="workspace">
@@ -140,11 +140,18 @@
 <dialog id="signalLibraryDialog" class="signal-dialog">
   <div class="section-head"><div><div class="eyebrow">SIGNAL LIBRARY</div><h2>自定义信号库</h2></div>
     <button class="secondary" type="button" onclick="$('#signalLibraryDialog').close()">关闭</button></div>
-  <p class="hint">无需 DBC。信号定义保存在本机 data/signals.json；可导出 JSON 备份。</p>
+  <p class="hint">无需 DBC。信号定义保存在本机 data/signals.json；支持导出和一键导入备份 JSON。</p>
   <div class="actions signal-library-actions">
     <button type="button" onclick="startSignalEditor()">+ 新建信号</button>
     <a class="button secondary" href="/api/signals/export">导出定义 JSON</a>
+    <button type="button" class="secondary" onclick="$('#signalImportFile').click()">导入信号库 JSON</button>
+    <label class="signal-import-select">冲突处理<select id="signalImportConflict">
+      <option value="skip">跳过同名信号（默认，保留现有定义）</option>
+      <option value="overwrite">覆盖同名信号</option>
+    </select></label>
+    <input type="file" id="signalImportFile" accept=".json,application/json" hidden>
   </div>
+  <p id="signalImportResult" class="signal-import-result" role="status" aria-live="polite"></p>
   <div class="table-wrap signal-library-table">
     <table><thead><tr><th>报文</th><th>信号名称</th><th>位范围</th><th>类型 / 字节序</th><th>系数 / 偏移</th><th>操作</th></tr></thead>
       <tbody id="signalLibraryRows"></tbody></table>
@@ -173,10 +180,26 @@
       <label>Factor 比例<input id="signalFactor" type="number" step="any" value="1" required></label>
       <label>Offset 偏移<input id="signalOffset" type="number" step="any" value="0" required></label>
       <label>单位 Unit<input id="signalUnit" maxlength="32" placeholder="例如 rad/s、A、Nm"></label>
+      <label>解析显示方式<select id="signalDisplayMode">
+        <option value="number">数值 Number</option>
+        <option value="enum">枚举 Enum（状态值→名称）</option>
+        <option value="bitfield">位标志 Bitfield（故障位）</option>
+      </select></label>
+    </div>
+    <div id="signalChoicesGroup" class="signal-choice-group" hidden>
+      <label>枚举 / 位标志映射（每行一条）<textarea id="signalChoices" rows="5" placeholder="0=初始化&#10;1=电流校准&#10;4=运行"></textarea></label>
+      <p id="signalChoicesHelp" class="hint"></p>
     </div>
     <label class="signal-notes">备注<textarea id="signalNotes" maxlength="256" rows="2" placeholder="记录协议来源、字段含义（可选）"></textarea></label>
     <div class="form-divider">位布局 / 实时预览 <span>BYTE AND BIT MAP</span></div>
     <p class="hint">位编号按 DBC 约定：每字节 bit0 为最低位；Motorola 起始位指最高有效位。点击位格可设置 Start Bit。</p>
+    <div class="signal-bit-legend">
+      <span><i class="legend-current"></i>当前编辑</span>
+      <span><i class="legend-defined"></i>已有定义</span>
+      <span><i class="legend-overlap"></i>重叠区域</span>
+    </div>
+    <p class="signal-occupied-summary" id="signalOccupiedSummary"></p>
+    <div id="signalExistingList" class="signal-existing-list" aria-label="当前报文已有信号"></div>
     <div id="signalBitMap" class="signal-bit-map"></div>
     <div id="signalPreview" class="signal-preview">从 Trace 中选择报文后，可根据当前原始数据预览信号。</div>
     <div class="dialog-actions"><button class="secondary" type="button" onclick="$('#signalEditorDialog').close()">取消</button>
@@ -199,5 +222,5 @@
     <p class="hint">你上传的 Linux x86-64 SDK Demo 使用设备类型 33，本工具默认按 33 打开；仅在失败时兼容尝试 41。内置 120Ω 只在该通道位于总线物理端点时开启。</p>
   </form>
 </dialog>
-<div id="toast"></div><script src="/static/app.js?v=0.3.1"></script>
+<div id="toast"></div><script src="/static/app.js?v=0.4.0"></script>
 </body></html>

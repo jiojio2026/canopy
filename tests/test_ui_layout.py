@@ -41,6 +41,9 @@ def test_all_views_and_device_controls_remain_accessible():
         "signalLibraryRows", "signalEditorForm", "signalBitMap",
         "signalPreview", "signalInspectorRows", "signalCanId",
         "signalSearch", "signalInspectorCount",
+        "signalImportFile", "signalImportConflict", "signalImportResult",
+        "signalDisplayMode", "signalChoices", "signalChoicesGroup",
+        "signalOccupiedSummary", "signalExistingList",
     )
     assert set(required) <= set(page.ids)
 
@@ -56,9 +59,9 @@ def test_sidebar_responsiveness_and_trace_bound():
 
 
 def test_version_alignment():
-    assert "v0.3.1" in HTML
-    assert "/static/style.css?v=0.3.1" in HTML
-    assert "/static/app.js?v=0.3.1" in HTML
+    assert "v0.4.0" in HTML
+    assert "/static/style.css?v=0.4.0" in HTML
+    assert "/static/app.js?v=0.4.0" in HTML
 
 
 def test_signal_editor_actions_and_menu_exist():
@@ -80,3 +83,17 @@ def test_expanded_signal_layout_and_search():
     assert "data-trace-collapse" in JS
     assert "function toggleTraceSignalDetails(" in JS
     assert 'id="signalSearch"' in HTML
+
+
+
+def test_enum_import_and_occupied_map_controls():
+    for token in ('id="signalImportFile"', 'id="signalDisplayMode"',
+                  'id="signalChoices"', 'id="signalExistingList"',
+                  'id="signalOccupiedSummary"', 'id="signalChoicesHelp"'):
+        assert token in HTML
+    for token in ("function importSignalLibraryFile(", "function parseChoiceLines(",
+                  "function occupiedSignalBits(", "function updateSignalDisplayMode("):
+        assert token in JS
+    for token in (".signal-byte-bit.is-defined", ".signal-byte-bit.is-overlap",
+                  ".signal-existing-chip", ".signal-choice-group"):
+        assert token in CSS

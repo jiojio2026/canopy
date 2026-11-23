@@ -357,6 +357,14 @@ function formatSignalNumber(value) {
   if (value === null || value === undefined || !Number.isFinite(Number(value))) return '—';
   return Number(value).toLocaleString(undefined, {maximumFractionDigits: 6});
 }
+function signalDisplayText(signal) {
+  return signal.error ? '解析失败' :
+    signal.display !== null && signal.display !== undefined
+      ? String(signal.display) : formatSignalNumber(signal.value);
+}
+function isActiveBitfield(signal) {
+  return signal.display_mode === 'bitfield' && Array.isArray(signal.active_flags) && signal.active_flags.length > 0;
+}
 function traceRowKey(frame) {
   // Latest mode keeps an expanded message open as its sequence increments;
   // scroll mode expands exactly one historical frame.
@@ -369,8 +377,8 @@ function decodedSignalSummary(frame) {
   const signals = frame.decoded_signals || [];
   if (!signals.length) return '<span class="signal-summary-empty">—</span>';
   const summary = signals.slice(0, 2).map(s => {
-    const value = s.error ? '错误' : formatSignalNumber(s.value);
-    return '<span class="signal-summary-entry' + (s.error ? ' signal-has-error' : '') + '">' +
+    const value = signalDisplayText(s);
+    return '<span class="signal-summary-entry' + (s.error ? ' signal-has-error' : isActiveBitfield(s) ? ' signal-flag-active' : '') + '">' +
       esc(s.name) + '=' + esc(value) + (s.unit ? ' ' + esc(s.unit) : '') + '</span>';
   }).join('');
   const expanded = expandedTraceRowKey === traceRowKey(frame);
@@ -389,9 +397,9 @@ function renderExpandedTraceSignals(frame) {
     ' · 全部解析信号（' + signals.length + '）</strong>' +
     '<button type="button" class="secondary" data-trace-collapse>收起</button></div>' +
     '<div class="trace-details-grid">' + signals.map(s =>
-      '<div class="trace-details-item' + (s.error ? ' signal-has-error' : '') + '">' +
+      '<div class="trace-details-item' + (s.error ? ' signal-has-error' : isActiveBitfield(s) ? ' signal-flag-active' : '') + '">' +
       '<span class="trace-details-name">' + esc(s.name) + '</span>' +
-      '<strong class="trace-details-value">' + (s.error ? '解析失败' : esc(formatSignalNumber(s.value))) +
+      '<strong class="trace-details-value">' + esc(signalDisplayText(s)) +
       (s.unit && !s.error ? ' <small>' + esc(s.unit) + '</small>' : '') + '</strong>' +
       '<span class="trace-details-raw">' +
         esc(s.error || 'Raw: ' + (s.raw ?? '—') + ' · ' + (s.raw_hex ?? '—')) +
@@ -437,7 +445,8 @@ function renderSignalInspector() {
   const previousScroll = container.scrollTop;
   container.innerHTML = visible.length
     ? visible.map(s => '<div class="signal-value"><div class="signal-name">' + esc(s.name) + '</div>' +
-      '<div class="signal-number">' + (s.error ? '—' : esc(formatSignalNumber(s.value))) +
+      '<div class="signal-number' + (s.display !== null && s.display !== undefined ? ' has-label' : '') +
+      (isActiveBitfield(s) ? ' signal-flag-active' : '') + '">' + esc(signalDisplayText(s)) +
       ' <small>' + esc(s.unit) + '</small></div><div class="signal-raw">' +
       esc(s.error || 'Raw: ' + (s.raw ?? '—') + ' / ' + (s.raw_hex ?? '—')) + '</div></div>').join('')
     : '<p class="signal-empty">' + (search && signals.length ? '未找到匹配的信号。' :
@@ -500,12 +509,79 @@ function renderSignalLibrary() {
       esc(d.frame_kind.toUpperCase()) + (d.extended ? ' EXT' : '') + '</td>' +
       '<td><b>' + esc(d.name) + '</b>' + (d.unit ? ' · ' + esc(d.unit) : '') + '</td>' +
       '<td class="cell-mono">' + d.start_bit + ' : ' + d.bit_length + '</td>' +
-      '<td>' + esc(d.value_type) + ' / ' + (d.byte_order === 'little_endian' ? 'Intel' : 'Motorola') + '</td>' +
+      '<td>' + esc(d.display_mode || 'number') + ' / ' + esc(d.value_type) + ' / ' +
+      (d.byte_order === 'little_endian' ? 'Intel' : 'Motorola') + '</td>' +
       '<td class="cell-mono">' + d.factor + ' / ' + d.offset + '</td>' +
       '<td><button type="button" class="secondary" data-signal-edit="' + esc(d.key) + '">编辑</button>' +
       '<button type="button" class="danger" data-signal-delete="' + esc(d.key) + '">删除</button></td></tr>').join('')
     : '<tr><td colspan="6">暂无信号定义。右键 Trace 报文，或点击“新建信号”。</td></tr>';
 }
+
+async function importSignalLibraryFile(input) {
+  const file = input.files && input.files[0];
+  if (!file) return;
+  const result = $('#signalImportResult');
+  try {
+    if (file.size > 1024 * 1024) throw new Error('文件超过 1 MiB，请使用 CANopy 导出的信号库 JSON。');
+    const parsed = JSON.parse(await file.text());
+    const definitions = Array.isArray(parsed) ? parsed :
+      (parsed && (parsed.signals || parsed.definitions));
+    if (!Array.isArray(definitions) || definitions.length > 512)
+      throw new Error('导入文件必须是信号数组（最多 512 项），支持 CANopy 导出的 JSON。');
+    const conflict = $('#signalImportConflict').value;
+    if (conflict === 'overwrite' &&
+      !window.confirm('覆盖模式：同一报文内同名信号将被导入内容替换。确定继续？')) return;
+    result.textContent = '正在校验并导入 ' + definitions.length + ' 个信号…';
+    const summary = await api('/api/signals/import',
+      {method: 'POST', body: {definitions, conflict}, timeoutMs: 20000});
+    await loadSignalDefinitions();
+    const message = '导入完成：新增 ' + summary.added + '，覆盖 ' + summary.overwritten +
+      '，跳过 ' + summary.skipped + '，库中共 ' + summary.total + ' 个信号。';
+    result.textContent = message;
+    toast(message);
+    if (traceIsVisible()) await refreshTrace(true);
+  } catch (e) {
+    const message = '导入失败：' + e.message;
+    result.textContent = message;
+    toast(message, true);
+  } finally { input.value = ''; }
+}
+function choiceLines(choices) {
+  return Object.entries(choices || {}).map(([code, label]) => code + '=' + label).join('\n');
+}
+function parseChoiceLines(text) {
+  const choices = {};
+  const seen = new Set();
+  for (const line of text.split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    const match = line.match(/^\s*(0[xX][0-9a-fA-F]+|\d+)\s*=\s*(.+?)\s*$/);
+    if (!match) throw new Error('映射格式为“数值=名称”，例如 0x04=运行');
+    const code = match[1].toLowerCase().startsWith('0x')
+      ? parseInt(match[1], 16) : Number(match[1]);
+    if (!Number.isSafeInteger(code) || code < 0 || seen.has(code))
+      throw new Error('映射数值必须唯一、非负，并在安全整数范围内');
+    seen.add(code);
+    choices[String(code)] = match[2];
+  }
+  return choices;
+}
+function updateSignalDisplayMode() {
+  const mode = $('#signalDisplayMode').value;
+  $('#signalChoicesGroup').hidden = mode === 'number';
+  $('#signalChoicesHelp').textContent = mode === 'enum'
+    ? '每行一个“原始数值=名称”，如 4=运行、0x05=错误。匹配原始整数，不做比例换算。'
+    : '每行一个“位序号=名称”，位序号从字段最低有效位 0 开始；如 0=驱动芯片故障、4=编码器故障。可同时触发多个标志。';
+  const numeric = mode === 'number';
+  $('#signalValueType').disabled = !numeric;
+  $('#signalFactor').disabled = !numeric;
+  $('#signalOffset').disabled = !numeric;
+  if (!numeric) {
+    $('#signalValueType').value = 'unsigned';
+    $('#signalFactor').value = 1;
+    $('#signalOffset').value = 0;
+  }
+}
+
 function startSignalEditor(frame = null, definition = null) {
   closeSignalContextMenu();
   $('#signalEditorForm').reset();
@@ -523,6 +599,9 @@ function startSignalEditor(frame = null, definition = null) {
   $('#signalOffset').value = definition?.offset ?? 0;
   $('#signalUnit').value = definition?.unit || '';
   $('#signalNotes').value = definition?.notes || '';
+  $('#signalDisplayMode').value = definition?.display_mode || 'number';
+  $('#signalChoices').value = choiceLines(definition?.choices);
+  updateSignalDisplayMode();
   signalEditorFrame = frame || lastTraceRows.slice().reverse().find(f => signalMatches(f, definition)) || null;
   $('#signalEditorSource').textContent = signalEditorFrame
     ? '样本：CAN' + signalEditorFrame.channel + ' / ' + hex(signalEditorFrame.can_id) +
@@ -555,6 +634,9 @@ function collectSignalForm() {
     offset: Number($('#signalOffset').value),
     unit: $('#signalUnit').value.trim(),
     notes: $('#signalNotes').value.trim(),
+    display_mode: $('#signalDisplayMode').value,
+    choices: $('#signalDisplayMode').value === 'number' ? {} :
+      parseChoiceLines($('#signalChoices').value),
   };
 }
 function signalBitIndices(start, size, order) {
@@ -567,27 +649,87 @@ function signalBitIndices(start, size, order) {
   }
   return bits;
 }
+function currentSignalScope() {
+  // Bit-map highlighting must not disappear while the user is editing
+  // an incomplete signal name, enum mapping or scaling expression.
+  try {
+    const text = $('#signalCanId').value.trim();
+    if (!/^(0x[0-9a-fA-F]+|[0-9]+)$/i.test(text)) return null;
+    return {
+      key: $('#signalKey').value,
+      channel: Number($('#signalChannel').value),
+      frame_kind: $('#signalFrameKind').value,
+      can_id: parseNum(text),
+      extended: $('#signalExtended').checked,
+      start_bit: Number($('#signalStartBit').value),
+      bit_length: Number($('#signalBitLength').value),
+      byte_order: $('#signalByteOrder').value,
+    };
+  } catch { return null; }
+}
+function occupiedSignalBits(candidate) {
+  if (!candidate) return {others: [], owners: new Map(), overlaps: []};
+  const others = signalDefinitions.filter(d => signalMatches(d, candidate) &&
+    d.key !== candidate.key);
+  const owners = new Map();
+  for (const definition of others) {
+    for (const bit of signalBitIndices(definition.start_bit, definition.bit_length, definition.byte_order)) {
+      if (!owners.has(bit)) owners.set(bit, []);
+      owners.get(bit).push(definition.name);
+    }
+  }
+  const current = signalBitIndices(candidate.start_bit, candidate.bit_length, candidate.byte_order);
+  const overlaps = [...new Set(current.flatMap(bit => owners.get(bit) || []))];
+  return {others, owners, overlaps};
+}
 function updateSignalBitMap() {
   const root = $('#signalBitMap');
-  const frame = signalEditorFrame;
   if (!root) return;
-  if (!frame?.data?.length) {
-    root.textContent = '暂无样本数据。选择 Trace 中的 CAN ID 后，可点击位格设置起始位。';
-    return;
-  }
+  const candidate = currentSignalScope();
+  const {others, owners, overlaps} = occupiedSignalBits(candidate);
   const start = Number($('#signalStartBit').value);
-  const bits = new Set(signalBitIndices(start, Number($('#signalBitLength').value), $('#signalByteOrder').value));
-  root.innerHTML = frame.data.slice(0,64).map((value, i) => {
+  const current = signalBitIndices(start, Number($('#signalBitLength').value),
+    $('#signalByteOrder').value);
+  const currentSet = new Set(current);
+  const frame = signalEditorFrame && candidate && signalMatches(candidate, signalEditorFrame)
+    ? signalEditorFrame : null;
+  const limit = candidate?.frame_kind === 'can' ? 8 : 64;
+  const highest = Math.max(7, ...current, ...owners.keys());
+  const byteCount = Math.min(limit,
+    Math.max(8, frame?.data?.length || 0, Math.ceil((highest + 1) / 8)));
+  root.innerHTML = Array.from({length: byteCount}, (_, i) => {
+    const value = frame?.data?.[i];
     const byteBits = Array.from({length: 8}, (_, j) => {
       const bit = 7 - j, index = i * 8 + bit;
-      const active = bits.has(index) ? ' is-signal' : '';
-      const first = index === start ? ' is-start' : '';
-      return '<button type="button" class="signal-byte-bit' + active + first + '" data-bit="' +
-        index + '" title="Byte ' + i + ' · bit' + bit + ' · Start Bit ' + index + '">' + bit + '</button>';
+      const selected = currentSet.has(index), occupied = owners.has(index);
+      const names = owners.get(index) || [];
+      const classes = (selected ? ' is-signal' : '') +
+        (occupied ? ' is-defined' : '') +
+        (selected && occupied ? ' is-overlap' : '') +
+        (selected && index === start ? ' is-start' : '');
+      const hint = 'Byte ' + i + ' · bit' + bit +
+        (names.length ? ' · 已定义：' + names.join('、') : '') +
+        (selected ? ' · 当前正在编辑' : '');
+      return '<button type="button" class="signal-byte-bit' + classes + '" data-bit="' +
+        index + '" title="' + esc(hint) + '" aria-label="' + esc(hint) + '">' + bit + '</button>';
     }).join('');
-    return '<div class="signal-byte-row"><span class="signal-byte-label">B' + i + ' · ' +
-      Number(value).toString(16).padStart(2,'0').toUpperCase() + '</span>' + byteBits + '</div>';
+    return '<div class="signal-byte-row"><span class="signal-byte-label">B' + i +
+      ' · ' + (value === undefined ? '—' :
+        Number(value).toString(16).padStart(2,'0').toUpperCase()) +
+      '</span>' + byteBits + '</div>';
   }).join('');
+  const summary = $('#signalOccupiedSummary');
+  summary.textContent = candidate
+    ? '此报文已定义 ' + others.length + ' 个其他信号。' +
+      (overlaps.length ? ' 当前字段与 ' + overlaps.join('、') + ' 重叠（可用于故障位拆分）。' :
+      ' 当前字段与已有定义无重叠。')
+    : '请输入有效的 CAN ID，显示该报文已有的信号占位。';
+  summary.classList.toggle('has-overlap', overlaps.length > 0);
+  $('#signalExistingList').innerHTML = others.map(d =>
+    '<button type="button" class="signal-existing-chip" data-existing-signal="' + esc(d.key) +
+    '" title="点击编辑 ' + esc(d.name) + '">' + esc(d.name) + ' · B' +
+    Math.floor(d.start_bit / 8) + '/bit' + (d.start_bit % 8) +
+    ' · ' + d.bit_length + '位</button>').join('');
 }
 function scheduleSignalPreview() {
   clearTimeout(signalPreviewTimer);
@@ -617,7 +759,7 @@ function scheduleSignalPreview() {
       if (generation !== signalPreviewGeneration) return;
       output.innerHTML = result.error
         ? '<span>' + esc(result.error) + '</span>'
-        : '解析值 <strong>' + esc(formatSignalNumber(result.value)) + '</strong> ' +
+        : '解析结果 <strong>' + esc(signalDisplayText(result)) + '</strong> ' +
           esc(result.unit) + ' · 原始值：' + esc(result.raw) + ' (' + esc(result.raw_hex) + ')';
     } catch (e) {
       if (generation === signalPreviewGeneration) output.textContent = e.message;
@@ -688,6 +830,18 @@ function initializeSignalUI() {
     scheduleSignalPreview();
   });
   $('#signalEditorForm').addEventListener('submit', saveSignalDefinition);
+  $('#signalImportFile').addEventListener('change', event => void importSignalLibraryFile(event.target));
+  $('#signalDisplayMode').addEventListener('change', () => {
+    updateSignalDisplayMode();
+    updateSignalBitMap();
+    scheduleSignalPreview();
+  });
+  $('#signalExistingList').addEventListener('click', event => {
+    const chip = event.target.closest('[data-existing-signal]');
+    if (!chip) return;
+    const definition = signalDefinitions.find(s => s.key === chip.dataset.existingSignal);
+    if (definition) startSignalEditor(signalEditorFrame, definition);
+  });
   $('#signalSearch').addEventListener('input', renderSignalInspector);
   document.addEventListener('click', e => {
     if (!e.target.closest('#signalContextMenu')) closeSignalContextMenu();
@@ -710,7 +864,7 @@ function renderTrace(rows) {
     const flags = [f.extended?'EXT':'', f.remote?'RTR':'', f.brs?'BRS':'', f.esi?'ESI':''].filter(Boolean).join(' ') || '—';
     const data = f.data_hex || (f.data||[]).map(x => x.toString(16).padStart(2,'0')).join(' ').toUpperCase();
     const title = (f.decoded_signals||[]).map(s =>
-      s.name + ': ' + (s.error || formatSignalNumber(s.value)) + ' ' + s.unit).join(' | ');
+      s.name + ': ' + (s.error || signalDisplayText(s)) + ' ' + s.unit).join(' | ');
     const open = expandedTraceRowKey === traceRowKey(f) && (f.decoded_signals || []).length > 0;
     return '<tr data-seq="' + esc(f.seq) + '"' + (open ? ' class="trace-expanded-parent"' : '') + '>' +
       '<td>' + esc(f.seq) + '</td>' +

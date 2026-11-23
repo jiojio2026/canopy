@@ -8,7 +8,7 @@ CANopy turns a Linux computer and a ZLG USBCANFD-200U into a local web CAN tool.
 
 ## Features
 
-The v0.3.1 interface uses a responsive sidebar, a device-status toolbar, consistent work areas for all five modules, and a wider, more readable Trace table. The mobile layout keeps the original device controls and horizontally scrollable data tables.
+The v0.4.0 interface uses a responsive sidebar, a device-status toolbar, consistent work areas for all five modules, and a wider, more readable Trace table. The mobile layout keeps the original device controls and horizontally scrollable data tables.
 
 
 - CAN0/CAN1 dual-channel operation
@@ -16,7 +16,7 @@ The v0.3.1 interface uses a responsive sidebar, a device-status toolbar, consist
 - Standard/extended frames, remote frames, BRS, ESI and self reception
 - Up to 64-byte CAN FD payloads
 - Live Trace, latest-value view, rolling view and CSV export
-- Built-in custom signal editor: right-click a Trace frame to define bits, endian, signed/unsigned/IEEE754 types, Factor/Offset and unit; live decoded values without a DBC
+- Built-in custom signal editor: right-click a Trace frame to define bits, endian, signed/unsigned/IEEE754, Factor/Offset and unit; Enum/Bitfield state labels and fault flags; occupied-bit highlighting and JSON library import/export without a DBC
 - Message library, simulation nodes and software periodic transmission
 - 120 Ω termination control and transmission timeout
 - Up to 64 hardware ID range filters per channel
@@ -34,6 +34,10 @@ The v0.3.1 interface uses a responsive sidebar, a device-status toolbar, consist
 2. Enter a descriptive **信号名称**, **Start Bit** and **Bit Length**, choose **Intel / Little Endian** or **Motorola / Big Endian** and the correct data type. If necessary, set **Factor**, **Offset** and **Unit**. A selected frame provides a clickable byte/bit map and decoded sample preview.
 3. Click **保存并实时解析**. The Trace table gains a decoded-signal summary **next to CAN ID**; for messages with more than two signals, click **展开全部 N 项** to show a bounded, scrollable panel with every decoded signal below that one row. Click the CAN ID for a separate live inspector with search and its own scrolling region. In the signal library, edit, remove, or export your definitions.
 4. Definitions are saved automatically to **\`data/signals.json\`** (or \`$CAN_WEB_DATA/signals.json\`) and are loaded on the next launch. Export JSON from the library for backup. Exporting a standard DBC file is not part of this first release.
+
+4. For **Enum**, choose "枚举 Enum" and enter one raw-value mapping per line (e.g. `0=初始化`, `4=运行`, `5=错误`). For fault **Bitfield**, choose "位标志 Bitfield" and use bit-index mappings (e.g. `0=驱动芯片故障`, `1=母线过压`, `4=编码器故障`). Multiple set bits appear together; unknown set bits are indicated explicitly. Both modes operate on unsigned raw data with Factor=1 and Offset=0.
+5. When defining another signal on the same channel / CAN ID / frame type, the bit map highlights previously saved fields in purple, your current selection in blue and overlaps in amber. Existing signal chips can be clicked to edit. Overlaps remain permitted for fault bit fields and raw-word views.
+6. Open **信号库** and click **导入信号库 JSON** to restore the JSON previously exported by CANopy. By default conflicting signals are **skipped**, preserving the local definition; selecting **覆盖同名信号** explicitly replaces a matching signal. Import validates the full file (up to 512 signals) before saving; importing a file preserves existing unrelated signals. This is a local JSON backup/restore workflow, **not** a standard DBC import.
 
 **Protocol caution:** This editor decodes according to definitions you supply; it cannot infer the semantic meaning of unknown vendor bytes. Bit numbering follows DBC conventions (Intel start bit is LSB of the signal; Motorola start bit is MSB of the signal with per-byte sawtooth bit numbering). Classic CAN is limited to 8 bytes, CAN FD to 64 bytes. Message matching is scoped to channel, CAN/CAN FD kind, frame ID and standard/extended ID type. Truncated frames produce a decoding error rather than a fabricated value.
 

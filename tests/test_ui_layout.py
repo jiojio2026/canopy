@@ -40,6 +40,7 @@ def test_all_views_and_device_controls_remain_accessible():
         "signalContextMenu", "signalLibraryDialog", "signalEditorDialog",
         "signalLibraryRows", "signalEditorForm", "signalBitMap",
         "signalPreview", "signalInspectorRows", "signalCanId",
+        "signalSearch", "signalInspectorCount",
     )
     assert set(required) <= set(page.ids)
 
@@ -55,9 +56,9 @@ def test_sidebar_responsiveness_and_trace_bound():
 
 
 def test_version_alignment():
-    assert "v0.3.0" in HTML
-    assert "/static/style.css?v=0.3.0" in HTML
-    assert "/static/app.js?v=0.3.0" in HTML
+    assert "v0.3.1" in HTML
+    assert "/static/style.css?v=0.3.1" in HTML
+    assert "/static/app.js?v=0.3.1" in HTML
 
 
 def test_signal_editor_actions_and_menu_exist():
@@ -70,3 +71,12 @@ def test_signal_editor_actions_and_menu_exist():
                   "function saveSignalDefinition(", "function decodedSignalSummary(",
                   "function updateSignalBitMap("):
         assert token in JS
+
+
+def test_expanded_signal_layout_and_search():
+    for token in (".trace-details-grid", ".trace-expand-button",
+                  ".signal-inspector-controls", "max-height: 352px"):
+        assert token in CSS
+    assert "data-trace-collapse" in JS
+    assert "function toggleTraceSignalDetails(" in JS
+    assert 'id="signalSearch"' in HTML

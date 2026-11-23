@@ -123,3 +123,92 @@ test('Bit positions follow Intel and Motorola conventions', () => {
   assert.deepEqual(intel, Array.from({length: 12}, (_, i) => i + 4));
   assert.deepEqual(motorola, [7,6,5,4,3,2,1,0,15,14,13,12,11,10,9,8]);
 });
+
+
+function decodedFrame(seq, count, canId = 0x706) {
+  return {
+    seq, timestamp_ns: 1800000000000000000, direction: 'rx',
+    frame_kind: 'canfd', channel: 1, can_id: canId, extended: false,
+    data: [5, 5],
+    decoded_signals: Array.from({length: count}, (_, i) => ({
+      name: 'Signal_' + i, value: i + 0.25, raw: String(i),
+      raw_hex: '0x' + i.toString(16).toUpperCase(), unit: 'rpm',
+    })),
+  };
+}
+
+test('Trace keeps the summary compact and expands all decoded signals in one detail row', () => {
+  const h = harness();
+  const frame = decodedFrame(100, 24);
+  h.ctx.renderTrace([frame]);
+  let html = h.elements.get('#traceRows').innerHTML;
+  assert.ok(html.includes('展开全部 24 项'));
+  assert.ok(!html.includes('Signal_23'));
+  assert.equal((html.match(/<tr\b/g) || []).length, 1);
+
+  h.ctx.toggleTraceSignalDetails(frame);
+  html = h.elements.get('#traceRows').innerHTML;
+  assert.ok(html.includes('全部解析信号（24）'));
+  assert.ok(html.includes('Signal_23'));
+  assert.ok(html.includes('23.25'));
+  assert.equal((html.match(/class="trace-details-item/g) || []).length, 24);
+  assert.equal((html.match(/class="trace-details-row"/g) || []).length, 1);
+  assert.equal((html.match(/<tr\b/g) || []).length, 2);
+  assert.equal(h.elements.get('#traceVisibleCount').textContent, '1');
+
+  // In latest mode, the same CAN frame should remain expanded as seq changes.
+  h.ctx.renderTrace([decodedFrame(101, 24)]);
+  html = h.elements.get('#traceRows').innerHTML;
+  assert.ok(html.includes('Signal_23'));
+  assert.ok(html.includes('data-seq="101"'));
+  h.ctx.collapseTraceSignalDetails();
+  assert.equal((h.elements.get('#traceRows').innerHTML.match(/class="trace-details-row"/g) || []).length, 0);
+});
+
+test('At most one signal detail row is expanded in scroll mode, and removed when evicted', () => {
+  const h = harness();
+  h.elements.get('#traceMode').value = 'scroll';
+  const first = decodedFrame(1, 18);
+  const second = decodedFrame(2, 18);
+  h.ctx.renderTrace([first, second]);
+  h.ctx.toggleTraceSignalDetails(first);
+  let html = h.elements.get('#traceRows').innerHTML;
+  assert.equal((html.match(/class="trace-details-row"/g) || []).length, 1);
+  h.ctx.toggleTraceSignalDetails(second);
+  html = h.elements.get('#traceRows').innerHTML;
+  assert.equal((html.match(/class="trace-details-row"/g) || []).length, 1);
+  // The selected frame has left the bounded scroll window.
+  h.ctx.renderTrace([decodedFrame(3, 18)]);
+  assert.equal((h.elements.get('#traceRows').innerHTML.match(/class="trace-details-row"/g) || []).length, 0);
+});
+
+test('Inspector filters many signals and preserves scroll position across live updates', () => {
+  const h = harness();
+  const frame = decodedFrame(9, 30);
+  frame.decoded_signals[29].name = 'motor_status';
+  const scroll = h.ctx.document.querySelector('#signalInspectorRows');
+  scroll.scrollTop = 92;
+  h.ctx.document.querySelector('#signalSearch').value = 'motor';
+  h.ctx.selectTraceFrame(frame);
+  assert.equal(h.elements.get('#signalInspectorCount').textContent, '1 / 30 项信号');
+  assert.ok(scroll.innerHTML.includes('motor_status'));
+  assert.ok(!scroll.innerHTML.includes('Signal_0'));
+  assert.equal(scroll.scrollTop, 92);
+  h.ctx.renderTrace([{...frame, seq: 10}]);
+  assert.equal(scroll.scrollTop, 92);
+});
+
+test('Expanded details escape untrusted signal names and error messages', () => {
+  const h = harness();
+  const frame = decodedFrame(7, 3);
+  frame.decoded_signals[2] = {
+    name: '<img src=x onerror=alert(1)>', value: null,
+    raw: null, raw_hex: null, unit: '', error: '<bad>',
+  };
+  h.ctx.renderTrace([frame]);
+  h.ctx.toggleTraceSignalDetails(frame);
+  const html = h.elements.get('#traceRows').innerHTML;
+  assert.ok(html.includes('&lt;img src=x onerror=alert(1)&gt;'));
+  assert.ok(html.includes('&lt;bad&gt;'));
+  assert.ok(!html.includes('<img src=x'));
+});

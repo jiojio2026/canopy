@@ -4,6 +4,7 @@ let messages = [];
 let ws = null;
 let liveFrames = [];
 let lastTraceRows = [];
+let expandedTraceRowKey = null;
 let signalDefinitions = [];
 let selectedSignalFrame = null;
 let signalContextFrame = null;
@@ -356,14 +357,56 @@ function formatSignalNumber(value) {
   if (value === null || value === undefined || !Number.isFinite(Number(value))) return '—';
   return Number(value).toLocaleString(undefined, {maximumFractionDigits: 6});
 }
+function traceRowKey(frame) {
+  // Latest mode keeps an expanded message open as its sequence increments;
+  // scroll mode expands exactly one historical frame.
+  return $('#traceMode').value === 'latest'
+    ? 'latest:' + [frame.channel, frame.frame_kind, frame.can_id, Boolean(frame.extended),
+      frame.direction, Boolean(frame.remote), Boolean(frame.brs)].join(':')
+    : 'scroll:' + frame.seq;
+}
 function decodedSignalSummary(frame) {
   const signals = frame.decoded_signals || [];
   if (!signals.length) return '<span class="signal-summary-empty">—</span>';
   const summary = signals.slice(0, 2).map(s => {
-    const value = s.error ? '—' : formatSignalNumber(s.value);
-    return esc(s.name) + '=' + esc(value) + (s.unit ? ' ' + esc(s.unit) : '');
-  }).join(' · ');
-  return summary + (signals.length > 2 ? ' <span class="signal-summary-empty">+' + (signals.length - 2) + '</span>' : '');
+    const value = s.error ? '错误' : formatSignalNumber(s.value);
+    return '<span class="signal-summary-entry' + (s.error ? ' signal-has-error' : '') + '">' +
+      esc(s.name) + '=' + esc(value) + (s.unit ? ' ' + esc(s.unit) : '') + '</span>';
+  }).join('');
+  const expanded = expandedTraceRowKey === traceRowKey(frame);
+  return '<div class="signal-summary-list">' + summary + '</div>' +
+    (signals.length > 2
+      ? '<button type="button" class="trace-expand-button" data-trace-expand aria-expanded="' +
+        (expanded ? 'true' : 'false') + '">' + (expanded ? '收起' : '展开全部') +
+        ' ' + signals.length + ' 项 <span aria-hidden="true">' + (expanded ? '▴' : '▾') + '</span></button>'
+      : '');
+}
+function renderExpandedTraceSignals(frame) {
+  const signals = frame.decoded_signals || [];
+  if (!signals.length) return '';
+  return '<tr class="trace-details-row"><td colspan="10"><div class="trace-details">' +
+    '<div class="trace-details-head"><strong>CAN' + esc(frame.channel) + ' / ' + hex(frame.can_id) +
+    ' · 全部解析信号（' + signals.length + '）</strong>' +
+    '<button type="button" class="secondary" data-trace-collapse>收起</button></div>' +
+    '<div class="trace-details-grid">' + signals.map(s =>
+      '<div class="trace-details-item' + (s.error ? ' signal-has-error' : '') + '">' +
+      '<span class="trace-details-name">' + esc(s.name) + '</span>' +
+      '<strong class="trace-details-value">' + (s.error ? '解析失败' : esc(formatSignalNumber(s.value))) +
+      (s.unit && !s.error ? ' <small>' + esc(s.unit) + '</small>' : '') + '</strong>' +
+      '<span class="trace-details-raw">' +
+        esc(s.error || 'Raw: ' + (s.raw ?? '—') + ' · ' + (s.raw_hex ?? '—')) +
+      '</span></div>').join('') + '</div></div></td></tr>';
+}
+function toggleTraceSignalDetails(frame) {
+  if (!frame || !(frame.decoded_signals || []).length) return;
+  const key = traceRowKey(frame);
+  expandedTraceRowKey = expandedTraceRowKey === key ? null : key;
+  renderTrace(lastTraceRows);
+}
+function collapseTraceSignalDetails() {
+  if (expandedTraceRowKey === null) return;
+  expandedTraceRowKey = null;
+  renderTrace(lastTraceRows);
 }
 function selectTraceFrame(frame) {
   if (!frame) return;
@@ -385,13 +428,23 @@ function renderSignalInspector() {
     ' · Seq ' + frame.seq + ' · 仅显示用户定义的信号';
   const signals = frame.decoded_signals || [];
   const definitions = signalDefinitions.filter(d => signalMatches(frame, d));
-  $('#signalInspectorRows').innerHTML = signals.length
-    ? signals.map(s => '<div class="signal-value"><div class="signal-name">' + esc(s.name) + '</div>' +
+  const search = ($('#signalSearch')?.value || '').trim().toLocaleLowerCase();
+  const visible = search ? signals.filter(s => s.name.toLocaleLowerCase().includes(search) ||
+    (s.unit || '').toLocaleLowerCase().includes(search)) : signals;
+  const count = $('#signalInspectorCount');
+  if (count) count.textContent = visible.length + ' / ' + signals.length + ' 项信号';
+  const container = $('#signalInspectorRows');
+  const previousScroll = container.scrollTop;
+  container.innerHTML = visible.length
+    ? visible.map(s => '<div class="signal-value"><div class="signal-name">' + esc(s.name) + '</div>' +
       '<div class="signal-number">' + (s.error ? '—' : esc(formatSignalNumber(s.value))) +
       ' <small>' + esc(s.unit) + '</small></div><div class="signal-raw">' +
       esc(s.error || 'Raw: ' + (s.raw ?? '—') + ' / ' + (s.raw_hex ?? '—')) + '</div></div>').join('')
-    : '<p class="signal-empty">' + (definitions.length ? '正在等待解码数据；收到新帧后自动更新。' :
+    : '<p class="signal-empty">' + (search && signals.length ? '未找到匹配的信号。' :
+      definitions.length ? '正在等待解码数据；收到新帧后自动更新。' :
       '尚未定义信号。点击“+ 定义信号”，选择起始位、长度和数据类型。') + '</p>';
+  // Do not jump to the top of a long signal list on every live update.
+  container.scrollTop = previousScroll;
 }
 function refreshSelectedSignalFrame(rows) {
   if (!selectedSignalFrame || $('#signalInspector').hidden) return;
@@ -597,8 +650,14 @@ async function deleteSignalDefinition(key) {
 function initializeSignalUI() {
   const rows = $('#traceRows');
   rows.addEventListener('click', e => {
+    if (e.target.closest('[data-trace-collapse]')) {
+      collapseTraceSignalDetails();
+      return;
+    }
     const row = e.target.closest('tr[data-seq]');
-    if (row && e.target.closest('.trace-id-button')) selectTraceFrame(signalFrameForRow(row));
+    if (!row) return;
+    if (e.target.closest('[data-trace-expand]')) toggleTraceSignalDetails(signalFrameForRow(row));
+    else if (e.target.closest('.trace-id-button')) selectTraceFrame(signalFrameForRow(row));
   });
   rows.addEventListener('contextmenu', e => {
     const row = e.target.closest('tr[data-seq]');
@@ -629,6 +688,7 @@ function initializeSignalUI() {
     scheduleSignalPreview();
   });
   $('#signalEditorForm').addEventListener('submit', saveSignalDefinition);
+  $('#signalSearch').addEventListener('input', renderSignalInspector);
   document.addEventListener('click', e => {
     if (!e.target.closest('#signalContextMenu')) closeSignalContextMenu();
   });
@@ -642,23 +702,29 @@ const traceClock = new Intl.DateTimeFormat(undefined, {
 });
 function renderTrace(rows) {
   lastTraceRows = rows.slice(-TRACE_RENDER_LIMIT);
+  if (expandedTraceRowKey !== null &&
+      !lastTraceRows.some(f => traceRowKey(f) === expandedTraceRowKey)) {
+    expandedTraceRowKey = null;
+  }
   $('#traceRows').innerHTML = lastTraceRows.slice().reverse().map(f => {
     const flags = [f.extended?'EXT':'', f.remote?'RTR':'', f.brs?'BRS':'', f.esi?'ESI':''].filter(Boolean).join(' ') || '—';
     const data = f.data_hex || (f.data||[]).map(x => x.toString(16).padStart(2,'0')).join(' ').toUpperCase();
     const title = (f.decoded_signals||[]).map(s =>
       s.name + ': ' + (s.error || formatSignalNumber(s.value)) + ' ' + s.unit).join(' | ');
-    return '<tr data-seq="' + esc(f.seq) + '">' +
+    const open = expandedTraceRowKey === traceRowKey(f) && (f.decoded_signals || []).length > 0;
+    return '<tr data-seq="' + esc(f.seq) + '"' + (open ? ' class="trace-expanded-parent"' : '') + '>' +
       '<td>' + esc(f.seq) + '</td>' +
       '<td class="cell-mono">' + traceClock.format(Math.floor(Number(f.timestamp_ns)/1e6)) + '</td>' +
       '<td><span class="frame-direction ' + esc(f.direction) + '">' + esc(f.direction) + '</span></td>' +
       '<td>' + esc(f.frame_kind==='lin'?'LIN'+f.channel:'CAN'+f.channel) + '</td>' +
       '<td>' + esc(f.frame_kind) + '</td>' +
       '<td><button class="trace-id-button" type="button" title="点击查看解析，右键定义信号">' + hex(f.can_id) + '</button></td>' +
+      '<td class="signal-summary" title="' + esc(title) + '">' + decodedSignalSummary(f) + '</td>' +
       '<td>' + esc(flags) + '</td>' +
       '<td class="cell-data">' + esc(data) + '</td>' +
-      '<td class="signal-summary" title="' + esc(title) + '">' + decodedSignalSummary(f) + '</td>' +
       '<td class="cell-frequency">' + (f.frequency_hz ? Number(f.frequency_hz).toFixed(1) + ' Hz / ' +
-        Number(f.period_ms).toFixed(2) + ' ms' : '—') + '</td></tr>';
+        Number(f.period_ms).toFixed(2) + ' ms' : '—') + '</td></tr>' +
+      (open ? renderExpandedTraceSignals(f) : '');
   }).join('');
   const count = $('#traceVisibleCount');
   if (count) count.textContent = String(lastTraceRows.length);
@@ -679,6 +745,7 @@ async function clearTrace() {
     liveFrames = [];
     $('#traceRows').replaceChildren();
     lastTraceRows = [];
+    expandedTraceRowKey = null;
     $('#traceVisibleCount').textContent = '0';
     hideSignalInspector();
     await refreshTrace(true);

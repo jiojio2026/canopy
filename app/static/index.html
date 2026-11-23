@@ -25,7 +25,7 @@
       <div class="sidebar-footer-title"><span class="status-pulse"></span> LOCAL WORKBENCH</div>
       <div>ZLG USBCANFD-200U</div>
       <div>Linux x86-64 · VCI ABI</div>
-      <span class="sidebar-version">v0.3.0</span>
+      <span class="sidebar-version">v0.3.1</span>
     </div>
   </aside>
   <div class="workspace">
@@ -97,15 +97,19 @@
         <button type="button" class="secondary" onclick="openSignalLibrary()">信号库</button>
       </div>
     </div>
-    <div class="trace-info"><span><span class="live-dot small"></span> LIVE CAPTURE</span><span>当前显示 <strong id="traceVisibleCount">0</strong> 帧</span><span>右键任一帧定义信号 · 点击 ID 查看实时解析</span></div>
+    <div class="trace-info"><span><span class="live-dot small"></span> LIVE CAPTURE</span><span>当前显示 <strong id="traceVisibleCount">0</strong> 帧</span><span>点击解析信号的「展开全部」查看完整列表 · 点击 ID 打开信号监视器</span></div>
     <div class="signal-inspector" id="signalInspector" hidden>
       <div class="signal-inspector-head">
         <div><div class="eyebrow">SIGNAL INSPECTOR</div><h3 id="signalInspectorTitle">已选报文</h3><div class="hint" id="signalInspectorMeta"></div></div>
         <div class="actions"><button class="secondary" type="button" onclick="newSignalForSelected()">+ 定义信号</button><button class="secondary" type="button" onclick="hideSignalInspector()">收起</button></div>
       </div>
+      <div class="signal-inspector-controls">
+        <label class="signal-inspector-search"><span class="sr-only">搜索已解析的信号</span><input id="signalSearch" type="search" placeholder="搜索信号名称或单位…" autocomplete="off"></label>
+        <span id="signalInspectorCount" aria-live="off">0 / 0 项信号</span>
+      </div>
       <div id="signalInspectorRows" class="signal-inspector-values"></div>
     </div>
-    <div class="table-wrap trace"><table><thead><tr><th>Seq</th><th>时间</th><th>方向</th><th>通道</th><th>类型</th><th>ID</th><th>标志</th><th>数据</th><th>解析信号</th><th>Hz/周期</th></tr></thead><tbody id="traceRows"></tbody></table></div>
+    <div class="table-wrap trace"><table><thead><tr><th>Seq</th><th>时间</th><th>方向</th><th>通道</th><th>类型</th><th>ID</th><th>解析信号 <span class="trace-column-help">（点击展开全部）</span></th><th>标志</th><th>数据</th><th>Hz/周期</th></tr></thead><tbody id="traceRows"></tbody></table></div>
   </article>
 </section>
 

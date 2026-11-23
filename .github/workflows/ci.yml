@@ -25,7 +25,13 @@ jobs:
         run: python -m compileall -q app tools tests
       - name: Tests
         run: python -m pytest -q
-      - name: Frontend Trace tests
-        run: node --test tests/test_trace_frontend.cjs
       - name: Shell syntax
         run: bash -n run.sh run_mock.sh run_real.sh tools/install_zlg_sdk.sh tools/install_udev_rule.sh
+
+  frontend:
+    name: Frontend regression
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Frontend Trace tests
+        run: node --test tests/test_trace_frontend.cjs

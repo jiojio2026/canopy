@@ -113,6 +113,13 @@
       </div>
     </div>
     <div class="trace-info"><span><span class="live-dot small"></span> LIVE CAPTURE</span><span>显示 <strong id="traceVisibleCount">0</strong> 帧</span><span id="traceFilterStats">全部报文</span><span class="trace-shortcuts">点击表头排序 · 拖动列边界调整宽度 · 右键报文定义信号</span></div>
+    <div class="table-wrap trace" id="traceTableViewport">
+        <table id="traceTable" class="trace-data-table" aria-label="CAN 实时报文列表">
+          <colgroup id="traceColgroup"></colgroup>
+          <thead><tr id="traceHeaderRow"></tr></thead>
+          <tbody id="traceRows"></tbody>
+        </table>
+      </div>
     <div class="signal-inspector" id="signalInspector" hidden>
       <div class="signal-inspector-head">
         <div><div class="eyebrow">SIGNAL INSPECTOR</div><h3 id="signalInspectorTitle">已选报文</h3><div class="hint" id="signalInspectorMeta"></div></div>
@@ -129,13 +136,6 @@
         </table>
       </div>
     </div>
-    <div class="table-wrap trace" id="traceTableViewport">
-        <table id="traceTable" class="trace-data-table" aria-label="CAN 实时报文列表">
-          <colgroup id="traceColgroup"></colgroup>
-          <thead><tr id="traceHeaderRow"></tr></thead>
-          <tbody id="traceRows"></tbody>
-        </table>
-      </div>
   </article>
 </section>
 

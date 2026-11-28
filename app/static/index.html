@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>CANopy · CAN 总线工作台</title>
   <link rel="icon" type="image/svg+xml" href="/static/canopy-mark.svg">
-  <link rel="stylesheet" href="/static/style.css?v=0.5.2">
+  <link rel="stylesheet" href="/static/style.css?v=0.5.3">
 </head>
 <body>
 <div class="app-shell">
@@ -26,7 +26,7 @@
       <div class="sidebar-footer-title"><span class="status-pulse"></span> LOCAL WORKBENCH</div>
       <div>ZLG USBCANFD-200U</div>
       <div>Linux x86-64 · VCI ABI</div>
-      <span class="sidebar-version">v0.5.2</span>
+      <span class="sidebar-version">v0.5.3</span>
     </div>
   </aside>
   <div class="workspace">
@@ -46,13 +46,33 @@
       </div>
     </header>
 <main class="content">
-<section id="dashboard" class="panel active">
-  <div class="page-heading"><div><div class="eyebrow">OVERVIEW / 总览</div><h1>设备工作台</h1><p>管理设备连接、双通道状态与实时总线负载。</p></div><button class="secondary" onclick="showConfig()">设备配置</button></div>
-  <div class="grid two overview-grid">
-    <article><div class="section-head"><div><div class="eyebrow">CONNECTION</div><h2>设备信息</h2></div><span class="subtle-label">硬件状态</span></div><div id="deviceInfo" class="kv"></div><div id="deviceAction" class="operation idle"><b>设备操作状态</b><span>等待操作</span></div><div class="actions"><button onclick="loadStatus()">刷新状态</button><button class="secondary" onclick="runPreflight()">连接诊断</button><button class="secondary" onclick="showConfig()">设备配置</button></div><pre id="preflightResult" class="diagnostic-output" hidden></pre></article>
-    <article><div class="section-head"><div><div class="eyebrow">BUS MONITOR</div><h2>总线实时负载</h2></div><span class="subtle-label">基于已观察报文估算</span></div><div id="metrics"></div></article>
+<section id="dashboard" class="panel active overview-workbench">
+  <div class="overview-heading">
+    <div class="overview-heading-title"><h1>总览</h1><span>设备状态 · 总线负载 · 通道管理</span></div>
+    <div class="overview-heading-actions">
+      <button class="secondary" onclick="loadStatus()">刷新状态</button>
+      <button class="secondary" onclick="runPreflight()">连接诊断</button>
+      <button class="secondary" onclick="showConfig()">设备配置</button>
+    </div>
   </div>
-  <div class="subsection-heading"><h2>通道管理</h2><span>CAN0 / CAN1</span></div><div class="grid two" id="channelCards"></div>
+  <article class="overview-summary">
+    <div class="overview-summary-grid">
+      <div class="overview-device-block">
+        <div class="overview-section-title"><strong>设备信息</strong><span>CONNECTION</span></div>
+        <div id="deviceInfo" class="kv overview-device-kv"></div>
+      </div>
+      <div class="overview-metrics-block">
+        <div class="overview-section-title"><strong>实时总线负载</strong><span>根据已接收报文估算</span></div>
+        <div id="metrics"></div>
+      </div>
+    </div>
+    <div id="deviceAction" class="operation idle"><b>设备操作状态</b><span>等待操作</span></div>
+    <pre id="preflightResult" class="diagnostic-output" hidden></pre>
+  </article>
+  <article class="overview-channel-section">
+    <div class="overview-section-title"><strong>CAN 通道管理</strong><span>双通道参数对比 · 操作按通道独立执行</span></div>
+    <div id="channelCards" class="overview-channel-wrap"></div>
+  </article>
 </section>
 
 <section id="messages" class="panel">
@@ -270,5 +290,5 @@
     <p class="hint">你上传的 Linux x86-64 SDK Demo 使用设备类型 33，本工具默认按 33 打开；仅在失败时兼容尝试 41。内置 120Ω 只在该通道位于总线物理端点时开启。</p>
   </form>
 </dialog>
-<div id="toast"></div><script src="/static/plot.js?v=0.5.2"></script><script src="/static/app.js?v=0.5.2"></script>
+<div id="toast"></div><script src="/static/plot.js?v=0.5.3"></script><script src="/static/app.js?v=0.5.3"></script>
 </body></html>

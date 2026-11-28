@@ -522,11 +522,57 @@ async function closeDevice() {
   finally { btn.disabled=false; }
 }
 
+function bitrateLabel(rate) {
+  const n = Number(rate);
+  if (!Number.isFinite(n) || n < 0) return '—';
+  if (n >= 1000000) return (n / 1000000).toLocaleString(undefined, {maximumFractionDigits: 2}) + ' Mbit/s';
+  if (n >= 1000) return (n / 1000).toLocaleString(undefined, {maximumFractionDigits: 2}) + ' kbit/s';
+  return n.toLocaleString() + ' bit/s';
+}
 function renderChannels() {
   if (!config) return;
-  $('#channelCards').innerHTML=config.channels.map((c,i) => `<article class="channel-card"><div class="section-head"><div><div class="eyebrow">BUS INTERFACE</div><h2>CAN${i}</h2></div><span class="tag ${c.enabled ? 'tag-online' : 'tag-muted'}">${c.enabled ? esc(c.protocol.toUpperCase()) : '禁用'}</span></div><div class="kv"><b>仲裁速率</b><span>${Number(c.arbitration_bitrate).toLocaleString()} bit/s</span><b>数据速率</b><span>${c.protocol==='canfd' ? Number(c.data_bitrate).toLocaleString()+' bit/s' : '-'}</span><b>标准</b><span>${esc(c.canfd_standard)}</span><b>模式</b><span>${esc(c.mode)}</span><b>内置 120Ω</b><span>${c.resistance_120ohm ? '开启' : '关闭'}</span></div><div class="actions"><button onclick="diagnose(${i})">诊断</button><button class="secondary" onclick="resetCh(${i})">复位</button><button class="secondary" onclick="clearCh(${i})">清缓冲</button><button class="secondary" onclick="clearHwPeriodic(${i})">清硬件周期</button></div><pre id="diag${i}"></pre></article>`).join('');
+  const rows = config.channels.map((c, i) => {
+    const state = c.enabled ? esc(c.protocol.toUpperCase()) : '禁用';
+    const mode = c.mode === 'listen_only' ? '只听' : c.mode === 'normal' ? '正常收发' : esc(c.mode);
+    return '<tr class="overview-channel-row">' +
+      '<td><strong class="overview-channel-name">CAN' + i + '</strong></td>' +
+      '<td><span class="tag ' + (c.enabled ? 'tag-online' : 'tag-muted') + '">' + state + '</span></td>' +
+      '<td class="cell-mono">' + esc(bitrateLabel(c.arbitration_bitrate)) + '</td>' +
+      '<td class="cell-mono">' + (c.protocol === 'canfd' ? esc(bitrateLabel(c.data_bitrate)) : '—') + '</td>' +
+      '<td>' + mode + '</td>' +
+      '<td class="cell-mono">' + esc((c.canfd_standard || '—').toUpperCase()) + '</td>' +
+      '<td><span class="overview-resistor ' + (c.resistance_120ohm ? 'enabled' : '') + '">' +
+        (c.resistance_120ohm ? '接入' : '断开') + '</span></td>' +
+      '<td class="overview-channel-actions"><div class="overview-actions">' +
+        '<button id="diagBtn' + i + '" type="button" class="secondary" aria-controls="diagRow' + i +
+          '" aria-expanded="false" onclick="diagnose(' + i + ')">诊断</button>' +
+        '<button type="button" class="secondary" onclick="resetCh(' + i + ')">复位</button>' +
+        '<button type="button" class="secondary" onclick="clearCh(' + i + ')">清缓冲</button>' +
+        '<button type="button" class="secondary" onclick="clearHwPeriodic(' + i + ')">清硬件周期</button>' +
+      '</div></td></tr>' +
+      '<tr id="diagRow' + i + '" class="overview-diagnostic-row" hidden><td colspan="8">' +
+        '<div class="overview-diagnostic-head"><strong>CAN' + i + ' 诊断结果</strong>' +
+        '<button type="button" class="secondary" onclick="hideChannelDiagnosis(' + i + ')">收起</button></div>' +
+        '<pre id="diag' + i + '" class="overview-diagnostic-output"></pre></td></tr>';
+  }).join('');
+  $('#channelCards').innerHTML =
+    '<table class="overview-channel-table" aria-label="CAN 通道配置与操作">' +
+    '<thead><tr><th>通道</th><th>协议状态</th><th>仲裁速率</th><th>数据速率</th>' +
+    '<th>工作模式</th><th>FD 标准</th><th>120Ω</th><th>通道操作</th></tr></thead>' +
+    '<tbody>' + rows + '</tbody></table>';
 }
-async function diagnose(i) { try { $(`#diag${i}`).textContent=JSON.stringify(await api(`/api/device/diagnostics/${i}`),null,2); } catch(e) { toast(e.message,true); } }
+function hideChannelDiagnosis(i) {
+  $('#diagRow' + i).hidden = true;
+  $('#diagBtn' + i).setAttribute('aria-expanded', 'false');
+}
+async function diagnose(i) {
+  try {
+    const result = await api('/api/device/diagnostics/' + i);
+    $('#diag' + i).textContent = JSON.stringify(result, null, 2);
+    $('#diagRow' + i).hidden = false;
+    $('#diagBtn' + i).setAttribute('aria-expanded', 'true');
+  } catch (e) { toast(e.message, true); }
+}
 async function resetCh(i) { try { await api(`/api/device/reset/${i}`,{method:'POST'}); toast(`CAN${i} 已复位`); } catch(e) { toast(e.message,true); } }
 async function clearCh(i) { try { await api(`/api/device/clear/${i}`,{method:'POST'}); toast(`CAN${i} 缓冲已清空`); } catch(e) { toast(e.message,true); } }
 async function clearHwPeriodic(i) { try { await api(`/api/hardware-periodic/clear/${i}`,{method:'POST'}); toast(`CAN${i} 硬件周期槽位已清空`); } catch(e) { toast(e.message,true); } }
@@ -1322,11 +1368,23 @@ function connectWs() {
   };
   socket.onopen = () => syncTraceSubscription();
 }
+function renderMetrics(metrics) {
+  const pct = value => {
+    const n = Number(value);
+    return Number.isFinite(n) && n >= 0 ? n.toFixed(2) + '%' : '—';
+  };
+  $('#metrics').innerHTML = [0, 1].map(ch => {
+    const item = metrics?.[String(ch)] || {};
+    const frames = Number(item.frames_1s);
+    const count = Number.isFinite(frames) && frames >= 0 ? frames.toLocaleString() : '—';
+    return '<div class="stat overview-bus-stat">' +
+      '<b>CAN' + ch + ' / BUS LOAD</b>' +
+      '<strong>' + pct(item.load_1s_pct) + '</strong>' +
+      '<span>' + count + ' 帧/s · 10 秒均值 ' + pct(item.load_10s_avg_pct) + '</span></div>';
+  }).join('');
+}
 async function loadMetrics() {
-  try {
-    const m=await api('/api/metrics');
-    $('#metrics').innerHTML=Object.entries(m).map(([ch,x]) => `<div class="stat"><b>CAN${ch} / BUS LOAD</b><strong>${x.load_1s_pct}%</strong><span>${x.frames_1s} 帧/s · 10 秒均值 ${x.load_10s_avg_pct}%</span></div>`).join('');
-  } catch {}
+  try { renderMetrics(await api('/api/metrics')); } catch {}
 }
 async function applyFilters() { try { const channel=+$('#filterChannel').value, filters=JSON.parse($('#filterJson').value); toast(JSON.stringify(await api('/api/filters',{method:'PUT',body:{channel,filters}}))); } catch(e) { toast(e.message,true); } }
 async function sendQueue() { try { toast(JSON.stringify(await api('/api/tx-queue',{method:'POST',body:JSON.parse($('#queueJson').value)}))); } catch(e) { toast(e.message,true); } }

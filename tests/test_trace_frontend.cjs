@@ -443,3 +443,39 @@ test('Inspector divider is initially hidden and supports compact persisted heigh
   h.ctx.hideSignalInspector();
   assert.equal(divider.hidden,true);
 });
+
+
+test('Dense overview renders CAN0/CAN1 as rows with independent controls and diagnostic slots', () => {
+  const h = harness();
+  const cfg = {channels: [
+    {enabled:false,protocol:'canfd',arbitration_bitrate:500000,data_bitrate:2000000,
+      mode:'normal',canfd_standard:'iso',resistance_120ohm:false},
+    {enabled:true,protocol:'canfd',arbitration_bitrate:1000000,data_bitrate:4000000,
+      mode:'listen_only',canfd_standard:'iso',resistance_120ohm:true},
+  ]};
+  vm.runInContext('config = '+JSON.stringify(cfg),h.ctx);
+  h.ctx.renderChannels();
+  const output = h.elements.get('#channelCards').innerHTML;
+  assert.ok(output.includes('class="overview-channel-table"'));
+  assert.equal((output.match(/class="overview-channel-row"/g)||[]).length,2);
+  assert.ok(output.includes('500 kbit/s'));
+  assert.ok(output.includes('4 Mbit/s'));
+  assert.ok(output.includes('只听'));
+  assert.ok(output.includes('接入'));
+  assert.ok(output.includes('id="diagRow0"'));
+  assert.ok(output.includes('id="diagRow1"'));
+  assert.ok(output.includes('onclick="clearHwPeriodic(1)"'));
+});
+
+test('Dense overview bus summary preserves channel-specific live and average load', () => {
+  const h = harness();
+  h.ctx.renderMetrics({'0':{load_1s_pct:0,frames_1s:0,load_10s_avg_pct:0},
+    '1':{load_1s_pct:0.966,frames_1s:35,load_10s_avg_pct:1.339}});
+  const output=h.elements.get('#metrics').innerHTML;
+  assert.equal((output.match(/class="stat overview-bus-stat"/g)||[]).length,2);
+  assert.ok(output.includes('CAN0 / BUS LOAD'));
+  assert.ok(output.includes('CAN1 / BUS LOAD'));
+  assert.ok(output.includes('0.97%'));
+  assert.ok(output.includes('1.34%'));
+  assert.ok(output.includes('35 帧/s'));
+});

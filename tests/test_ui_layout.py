@@ -64,9 +64,9 @@ def test_sidebar_responsiveness_and_trace_bound():
 
 
 def test_version_alignment():
-    assert "v0.5.2" in HTML
-    assert "/static/style.css?v=0.5.2" in HTML
-    assert "/static/app.js?v=0.5.2" in HTML
+    assert "v0.5.3" in HTML
+    assert "/static/style.css?v=0.5.3" in HTML
+    assert "/static/app.js?v=0.5.3" in HTML
 
 
 def test_signal_editor_actions_and_menu_exist():
@@ -147,8 +147,8 @@ def test_live_plot_is_opt_in_and_reuses_signal_decoder():
                   'id="plotSignalSelect"', 'id="plotWindow"', 'id="plotStatus"',
                   'id="plotLegend"'):
         assert token in HTML
-    assert '/static/plot.js?v=0.5.2' in HTML
-    assert HTML.index('/static/plot.js?v=0.5.2') < HTML.index('/static/app.js?v=0.5.2')
+    assert '/static/plot.js?v=0.5.3' in HTML
+    assert HTML.index('/static/plot.js?v=0.5.3') < HTML.index('/static/app.js?v=0.5.3')
     for token in ('function toggleSignalPlot()', 'function hideSignalPlot()',
                   'globalThis.CanopyPlot?.ingest(frames)',
                   'globalThis.CanopyPlot?.setDefinitions(signalDefinitions)',
@@ -157,3 +157,20 @@ def test_live_plot_is_opt_in_and_reuses_signal_decoder():
     for token in ('#trace .trace-plot', '#trace .trace-plot-canvas-wrap',
                   '#trace #plotCanvas', '#trace .signal-inspector-name .trace-plot-inline-add'):
         assert token in CSS
+
+
+def test_overview_uses_compact_status_and_channel_matrix():
+    assert 'class="overview-heading"' in HTML
+    assert 'class="overview-summary-grid"' in HTML
+    assert 'id="deviceInfo" class="kv overview-device-kv"' in HTML
+    assert 'id="channelCards" class="overview-channel-wrap"' in HTML
+    assert 'class="grid two overview-grid"' not in HTML
+    for token in ("function bitrateLabel(", "function renderChannels()",
+                  "function hideChannelDiagnosis(", "function renderMetrics(",
+                  "async function diagnose("):
+        assert token in JS
+    for token in ("#dashboard .overview-summary-grid", "#dashboard .overview-channel-table",
+                  "#dashboard .overview-channel-row", "#dashboard .overview-device-kv",
+                  "#dashboard .overview-bus-stat", "#dashboard .overview-diagnostic-row[hidden]"):
+        assert token in CSS
+    assert "根据已接收报文估算" in HTML

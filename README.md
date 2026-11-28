@@ -8,7 +8,7 @@ CANopy turns a Linux computer and a ZLG USBCANFD-200U into a local web CAN tool.
 
 ## Features
 
-The v0.5.2 interface uses a responsive sidebar, a device-status toolbar, and a Wireshark-inspired high-density Trace workbench with a compact decoded-signal table. The mobile layout keeps the original device controls and horizontally scrollable data tables.
+The v0.5.3 interface uses a responsive sidebar, a device-status toolbar, and a Wireshark-inspired high-density Trace workbench with a compact decoded-signal table. The mobile layout keeps the original device controls and horizontally scrollable data tables.
 
 
 - CAN0/CAN1 dual-channel operation
@@ -30,7 +30,7 @@ The v0.5.2 interface uses a responsive sidebar, a device-status toolbar, and a W
 - Long-running Trace protection: at most 3,000 buffered browser frames and 1,000 displayed rows; only one HTTP snapshot in flight; WebSocket streaming pauses when Trace is hidden
 - Mock backend for UI development without hardware
 
-## Wireshark-style Trace layout (v0.5.2)
+## Wireshark-style Trace layout (v0.5.3)
 
 Use **实时 Trace** for high-density CAN/CAN FD capture.
 
@@ -176,7 +176,7 @@ CANopy source code is released under the [MIT License](LICENSE).
 Files under `vendor/official_sdk/` and `vendor/packages/` are third-party ZLG materials and are excluded from the MIT grant. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 
-## Real-time signal comparison plot (v0.5.2)
+## Real-time signal comparison plot (v0.5.3)
 
 Open **实时 Trace → 曲线**, select a numeric signal from the saved signal library, and click **添加**. Add **实际位置** and **目标位置** (or up to four numeric signals), or click the small **＋** beside a decoded signal in the Inspector. Use the lower-pane divider to resize the plot; closing it stops sampling and releases the chart history.
 
@@ -187,3 +187,14 @@ Open **实时 Trace → 曲线**, select a numeric signal from the saved signal 
 - This is a **tracking diagnostic**, not a calibration or timing certification. Validate position scaling, encoder direction, timestamp jitter, sensor provenance and CAN load before using a plot to make control-performance claims.
 
 For very high-rate multi-channel analysis or hours-long recording, retain server-side files and consider a native desktop viewer; the local Canvas plot intentionally stays lightweight.
+
+
+## Dense Overview workbench (v0.5.3)
+
+The **总览** page groups connection information and estimated CAN0/CAN1 bus load in one compact status panel. The large per-channel cards have been replaced with an aligned two-row **CAN channel matrix**: enable/protocol, arbitration/data bitrate, mode, ISO setting, 120Ω terminator and independent device actions. Bitrates are displayed as kbit/s or Mbit/s for scanning; the values still come from the configured bitrates.
+
+- The channel matrix preserves **诊断 / 复位 / 清缓冲 / 清硬件周期** for each channel.
+- Diagnostic JSON appears only after clicking the channel's **诊断** button, and can be collapsed.
+- **刷新状态 / 连接诊断 / 设备配置** stay at the top. Device operation state is kept in a compact status strip.
+- The bus load percentage remains an **estimate from observed CAN traffic**, not a hardware-measured bus utilization reading.
+- Small screens use stacked status groups and a horizontally scrollable channel matrix; device configuration and other workspaces are unchanged.

@@ -64,7 +64,7 @@ def test_sidebar_responsiveness_and_trace_bound():
 
 
 def test_version_alignment():
-    assert "v0.5.0" in HTML
+    assert "v0.5.1" in HTML
     assert "/static/style.css?v=0.5.0" in HTML
     assert "/static/app.js?v=0.5.0" in HTML
 

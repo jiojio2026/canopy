@@ -125,3 +125,18 @@ def test_dense_trace_workbench_and_configurable_columns():
 def test_inspector_docks_below_trace_packets():
     assert HTML.index('id="traceTableViewport"') < HTML.index('id="signalInspector"')
     assert "#trace .trace-card:has(#signalInspector:not([hidden]))" in CSS
+
+
+def test_trace_uses_screen_space_and_custom_can_waveform_brand():
+    assert 'href="/static/canopy-mark.svg"' in HTML
+    assert 'src="/static/canopy-mark.svg"' in HTML
+    assert 'id="navToggleBtn"' in HTML
+    assert 'id="tracePaneDivider"' in HTML
+    assert '<option value="scroll" selected>' in HTML
+    assert 'function updateTraceNavigation()' in JS
+    assert 'function initTraceInspectorDivider()' in JS
+    assert 'function setTraceInspectorHeight(' in JS
+    assert '.app-shell.nav-collapsed' in CSS
+    assert '#trace .trace-pane-divider' in CSS
+    assert 'flex: 1 1 auto; min-height: 180px; max-height: none' in CSS
+    assert 'height: 27px; padding-block: 2px' in CSS

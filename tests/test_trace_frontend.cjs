@@ -14,7 +14,8 @@ function harness() {
   const pendingRequests = [], sockets = [], sent = [];
   function element(selector) {
     if (!elements.has(selector)) elements.set(selector, {
-      innerHTML: '', value: 'latest', textContent: '', style: {},
+      innerHTML: '', value: 'latest', textContent: '',
+      style: {setProperty(name,value) { this[name]=value; }}, setAttribute(name,value) { this[name]=value; },
       classList: {contains(name) { return name === 'active' && visible.active; },
         add() {}, remove() {}, toggle() {}},
       addEventListener() {}, replaceChildren() { this.innerHTML = ''; },
@@ -412,4 +413,33 @@ test('Signal inspector uses a compact table with raw/enum/bitfield labels', () =
   assert.ok(html.includes('MIT'));
   assert.ok(html.includes('Position'));
   assert.ok(!html.includes('class="signal-value"'));
+});
+
+
+test('Old default column widths compact automatically while manual widths survive', () => {
+  const h=harness();
+  const previous=vm.runInContext('defaultTraceLayout()',h.ctx);
+  previous.columns.find(c=>c.key==='seq').width=86;
+  previous.columns.find(c=>c.key==='id').width=148;
+  h.ctx.localStorage={getItem:()=>JSON.stringify(previous),setItem() {}};
+  const migrated=h.ctx.loadTraceLayout();
+  assert.equal(migrated.columns.find(c=>c.key==='seq').width,65);
+  assert.equal(migrated.columns.find(c=>c.key==='id').width,148);
+});
+
+test('Inspector divider is initially hidden and supports compact persisted height', () => {
+  const h=harness();
+  const saved=new Map();
+  h.ctx.localStorage={getItem:key=>saved.get(key)||null,setItem:(key,value)=>saved.set(key,value)};
+  h.ctx.initTraceInspectorDivider();
+  const inspector=h.elements.get('#trace');
+  const divider=h.elements.get('#tracePaneDivider');
+  assert.equal(inspector.style['--trace-inspector-height'],'220px');
+  h.ctx.setTraceInspectorHeight(276,true);
+  assert.equal(saved.get('canopy.trace.inspector.height.v1'),'276');
+  assert.equal(divider['aria-valuenow'],'276');
+  h.ctx.selectTraceFrame(decodedFrame(4,2));
+  assert.equal(divider.hidden,false);
+  h.ctx.hideSignalInspector();
+  assert.equal(divider.hidden,true);
 });

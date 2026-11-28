@@ -22,17 +22,19 @@ const TRACE_RENDER_LIMIT = 1000;
 const TRACE_SCROLL_LIMIT = 3000;
 
 const TRACE_LAYOUT_KEY = 'canopy.trace.layout.v1';
+const TRACE_OLD_WIDTHS = {seq:86,time:128,direction:72,channel:72,kind:78,id:94,signals:335,flags:95,data:440,frequency:156};
+const TRACE_INSPECTOR_HEIGHT_KEY = 'canopy.trace.inspector.height.v1';
 const TRACE_COLUMN_DEFS = [
-  {key:'seq', label:'Seq', width:86, min:60},
-  {key:'time', label:'时间', width:128, min:108},
-  {key:'direction', label:'方向', width:72, min:60},
-  {key:'channel', label:'通道', width:72, min:60},
-  {key:'kind', label:'类型', width:78, min:66},
-  {key:'id', label:'CAN ID', width:94, min:76},
-  {key:'signals', label:'解析信号', width:335, min:185},
-  {key:'flags', label:'标志', width:95, min:70},
-  {key:'data', label:'数据 HEX', width:440, min:180},
-  {key:'frequency', label:'Hz / 周期', width:156, min:114},
+  {key:'seq', label:'Seq', width:65, min:58},
+  {key:'time', label:'时间', width:113, min:105},
+  {key:'direction', label:'方向', width:62, min:55},
+  {key:'channel', label:'通道', width:67, min:58},
+  {key:'kind', label:'类型', width:72, min:62},
+  {key:'id', label:'CAN ID', width:88, min:72},
+  {key:'signals', label:'解析信号', width:260, min:165},
+  {key:'flags', label:'标志', width:70, min:56},
+  {key:'data', label:'数据 HEX', width:340, min:140},
+  {key:'frequency', label:'Hz / 周期', width:125, min:96},
 ];
 const TRACE_SORTABLE = new Set(TRACE_COLUMN_DEFS.map(c=>c.key));
 let traceSort = {key:'seq', direction:'desc'};
@@ -56,8 +58,10 @@ function loadTraceLayout() {
         const definition = TRACE_COLUMN_DEFS.find(d=>d.key===key);
         const raw = byKey.get(key) || {};
         const width = Number(raw.width);
+        // Migrate v0.5.0 default widths while preserving user-resized columns.
+        const targetWidth = Number.isFinite(width) && width !== TRACE_OLD_WIDTHS[key] ? width : definition.width;
         return {key, visible:raw.visible !== false,
-          width:Number.isFinite(width) ? Math.max(definition.min,Math.min(900,Math.round(width))) : definition.width};
+          width:Math.max(definition.min,Math.min(900,Math.round(targetWidth)))};
       });
     if (!columns.some(c=>c.visible)) columns.find(c=>c.key==='id').visible = true;
     return {density:saved.density==='standard'?'standard':'compact',columns};
@@ -336,6 +340,20 @@ function parseData(s) {
 }
 function makeKey() { return globalThis.crypto?.randomUUID?.() || `msg-${Date.now()}-${Math.random().toString(16).slice(2)}`; }
 
+let traceNavExpanded = false;
+function updateTraceNavigation() {
+  const active = $('#trace').classList.contains('active');
+  const collapsed = active && !traceNavExpanded;
+  document.querySelector('.app-shell').classList.toggle('nav-collapsed', collapsed);
+  const button = $('#navToggleBtn');
+  button.hidden = !active;
+  button.setAttribute('aria-expanded', String(!collapsed));
+  button.setAttribute('aria-label', collapsed ? '展开侧边栏' : '收起侧边栏');
+}
+$('#navToggleBtn').addEventListener('click', () => {
+  traceNavExpanded = !traceNavExpanded;
+  updateTraceNavigation();
+});
 document.querySelectorAll('.tab').forEach(b => b.onclick = () => {
   document.querySelectorAll('.tab,.panel').forEach(x => x.classList.remove('active'));
   b.classList.add('active');
@@ -343,6 +361,7 @@ document.querySelectorAll('.tab').forEach(b => b.onclick = () => {
   const label = b.querySelector('span:last-child')?.textContent || b.textContent.trim();
   const pageName = $('#pageName');
   if (pageName) pageName.textContent = label;
+  updateTraceNavigation();
   if (b.dataset.tab === 'trace') void refreshTrace(true);
   syncTraceSubscription();
 });
@@ -669,10 +688,12 @@ function selectTraceFrame(frame) {
   if (!frame) return;
   selectedSignalFrame = frame;
   $('#signalInspector').hidden = false;
+  $('#tracePaneDivider').hidden = false;
   renderSignalInspector();
 }
 function hideSignalInspector() {
   $('#signalInspector').hidden = true;
+  $('#tracePaneDivider').hidden = true;
   selectedSignalFrame = null;
 }
 function renderSignalInspector() {
@@ -1050,8 +1071,51 @@ async function deleteSignalDefinition(key) {
     await refreshTrace(true);
   } catch (e) { toast(e.message, true); }
 }
+let traceInspectorHeight = 220;
+function setTraceInspectorHeight(height, save = false) {
+  const limit = Math.max(140, Math.min(500, Math.floor((Number(globalThis.innerHeight) || 900) * 0.42)));
+  traceInspectorHeight = Math.max(140, Math.min(limit, Math.round(height)));
+  $('#trace').style.setProperty('--trace-inspector-height', traceInspectorHeight + 'px');
+  $('#tracePaneDivider').setAttribute('aria-valuemax', String(limit));
+  $('#tracePaneDivider').setAttribute('aria-valuenow', String(traceInspectorHeight));
+  if (save) {
+    try { localStorage.setItem(TRACE_INSPECTOR_HEIGHT_KEY, String(traceInspectorHeight)); }
+    catch { /* Layout still works when storage is unavailable. */ }
+  }
+}
+function initTraceInspectorDivider() {
+  let saved = 220;
+  try { saved = Number(localStorage.getItem(TRACE_INSPECTOR_HEIGHT_KEY)) || saved; }
+  catch { /* Private browsing mode. */ }
+  setTraceInspectorHeight(saved);
+  const divider = $('#tracePaneDivider');
+  divider.addEventListener('pointerdown', e => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const initialY = e.clientY;
+    const initialHeight = traceInspectorHeight;
+    const move = event => setTraceInspectorHeight(initialHeight + initialY - event.clientY);
+    const stop = () => {
+      document.removeEventListener('pointermove', move);
+      document.removeEventListener('pointerup', stop);
+      document.removeEventListener('pointercancel', stop);
+      setTraceInspectorHeight(traceInspectorHeight, true);
+    };
+    document.addEventListener('pointermove', move);
+    document.addEventListener('pointerup', stop);
+    document.addEventListener('pointercancel', stop);
+  });
+  divider.addEventListener('keydown', e => {
+    if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+    e.preventDefault();
+    setTraceInspectorHeight(traceInspectorHeight + (e.key === 'ArrowUp' ? 24 : -24), true);
+  });
+  divider.addEventListener('dblclick', () => setTraceInspectorHeight(220, true));
+}
+
 function initializeSignalUI() {
   initTraceLayoutControls();
+  initTraceInspectorDivider();
   const rows = $('#traceRows');
   rows.addEventListener('click', e => {
     if (e.target.closest('[data-trace-collapse]')) {

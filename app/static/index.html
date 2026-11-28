@@ -3,37 +3,41 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>CANopy</title>
-  <link rel="stylesheet" href="/static/style.css?v=0.5.0">
+  <title>CANopy · CAN 总线工作台</title>
+  <link rel="icon" type="image/svg+xml" href="/static/canopy-mark.svg">
+  <link rel="stylesheet" href="/static/style.css?v=0.5.1">
 </head>
 <body>
 <div class="app-shell">
   <aside class="sidebar" aria-label="主导航">
     <div class="brand">
-      <div class="brand-mark">C<span>·</span></div>
+      <div class="brand-mark"><img src="/static/canopy-mark.svg" width="40" height="40" alt="CANopy 波形标识"></div>
       <div><div class="brand-name">CANopy</div><div class="brand-subtitle">CAN DEVELOPMENT STUDIO</div></div>
     </div>
     <div class="sidebar-label">WORKSPACE / 工作区</div>
     <nav class="main-nav" aria-label="功能模块">
-      <button class="tab active" data-tab="dashboard"><span class="nav-index">01</span><span>总览</span></button>
-      <button class="tab" data-tab="messages"><span class="nav-index">02</span><span>报文与仿真节点</span></button>
-      <button class="tab" data-tab="trace"><span class="nav-index">03</span><span>实时 Trace</span></button>
-      <button class="tab" data-tab="advanced"><span class="nav-index">04</span><span>硬件高级特性</span></button>
-      <button class="tab" data-tab="lin"><span class="nav-index">05</span><span>LIN 工具</span></button>
+      <button title="总览" class="tab active" data-tab="dashboard"><span class="nav-index">01</span><span>总览</span></button>
+      <button title="报文与仿真节点" class="tab" data-tab="messages"><span class="nav-index">02</span><span>报文与仿真节点</span></button>
+      <button title="实时 Trace" class="tab" data-tab="trace"><span class="nav-index">03</span><span>实时 Trace</span></button>
+      <button title="硬件高级特性" class="tab" data-tab="advanced"><span class="nav-index">04</span><span>硬件高级特性</span></button>
+      <button title="LIN 工具" class="tab" data-tab="lin"><span class="nav-index">05</span><span>LIN 工具</span></button>
     </nav>
     <div class="sidebar-footer">
       <div class="sidebar-footer-title"><span class="status-pulse"></span> LOCAL WORKBENCH</div>
       <div>ZLG USBCANFD-200U</div>
       <div>Linux x86-64 · VCI ABI</div>
-      <span class="sidebar-version">v0.5.0</span>
+      <span class="sidebar-version">v0.5.1</span>
     </div>
   </aside>
   <div class="workspace">
     <header class="topbar">
-      <div class="topbar-context">
+      <div class="topbar-left">
+        <button id="navToggleBtn" type="button" class="nav-toggle secondary" hidden aria-label="收起侧边栏" aria-expanded="true" title="展开或收起侧边栏"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+        <div class="topbar-context">
         <span class="topbar-kicker">WORKBENCH</span>
         <span class="topbar-separator">/</span>
         <strong id="pageName">总览</strong>
+        </div>
       </div>
       <div class="status">
         <span id="deviceBadge" class="badge off">未连接</span>
@@ -85,15 +89,14 @@
 </section>
 
 <section id="trace" class="panel trace-workbench">
-  <div class="page-heading trace-page-heading"><div><div class="eyebrow">CAPTURE / CAN BUS ANALYZER</div><h1>实时 Trace <span class="trace-page-suffix">· CAN / CAN FD</span></h1><p>双击浏览数据，点击 ID 查看信号，右键定义字段；界面布局可自定义。</p></div></div>
   <article class="trace-card">
     <div class="trace-toolbar">
-      <div class="trace-toolbar-title"><span class="live-dot"></span><div><h2>报文列表</h2><p>实时抓包 · 本地解析</p></div></div>
+      <div class="trace-toolbar-title"><span class="live-dot"></span><h1>实时 Trace</h1><span class="trace-toolbar-subtitle">CAN / CAN FD</span></div>
       <div class="trace-actions">
         <label class="trace-filter-id"><span class="sr-only">按 CAN ID 筛选</span><input id="traceFilterId" type="search" inputmode="text" autocomplete="off" spellcheck="false" placeholder="过滤 ID，如 0x706" aria-label="过滤 CAN ID"></label>
         <label class="trace-filter-channel"><span class="sr-only">通道筛选</span><select id="traceFilterChannel" aria-label="通道筛选"><option value="all">全部通道</option><option value="0">CAN0</option><option value="1">CAN1</option></select></label>
         <label class="trace-filter-direction"><span class="sr-only">方向筛选</span><select id="traceFilterDirection" aria-label="方向筛选"><option value="all">RX / TX</option><option value="rx">仅 RX</option><option value="tx">仅 TX</option></select></label>
-        <label class="trace-mode-control"><span class="sr-only">Trace 视图模式</span><select id="traceMode" aria-label="Trace 视图模式" onchange="onTraceModeChange()"><option value="latest">最新值</option><option value="scroll">滚动 Trace</option></select></label>
+        <label class="trace-mode-control"><span class="sr-only">Trace 视图模式</span><select id="traceMode" aria-label="Trace 视图模式" onchange="onTraceModeChange()"><option value="scroll" selected>连续报文</option><option value="latest">最新值</option></select></label>
         <button onclick="refreshTrace()">刷新</button>
         <button class="secondary" onclick="clearTrace()">清空</button>
         <a class="button secondary" href="/api/trace.csv">导出 CSV</a>
@@ -120,6 +123,7 @@
           <tbody id="traceRows"></tbody>
         </table>
       </div>
+    <div id="tracePaneDivider" class="trace-pane-divider" role="separator" tabindex="0" aria-label="调整报文列表与信号详情的高度" aria-orientation="horizontal" aria-valuemin="140" aria-valuemax="500" aria-valuenow="220" title="拖动调整高度，双击恢复默认" hidden></div>
     <div class="signal-inspector" id="signalInspector" hidden>
       <div class="signal-inspector-head">
         <div><div class="eyebrow">SIGNAL INSPECTOR</div><h3 id="signalInspectorTitle">已选报文</h3><div class="hint" id="signalInspectorMeta"></div></div>
@@ -248,5 +252,5 @@
     <p class="hint">你上传的 Linux x86-64 SDK Demo 使用设备类型 33，本工具默认按 33 打开；仅在失败时兼容尝试 41。内置 120Ω 只在该通道位于总线物理端点时开启。</p>
   </form>
 </dialog>
-<div id="toast"></div><script src="/static/app.js?v=0.5.0"></script>
+<div id="toast"></div><script src="/static/app.js?v=0.5.1"></script>
 </body></html>

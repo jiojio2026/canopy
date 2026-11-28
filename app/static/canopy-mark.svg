@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" role="img" aria-label="CANopy">
+  <defs><linearGradient id="canopyBlue" x1="0" y1="0" x2="1" y2="1">
+    <stop stop-color="#408bfa"/><stop offset="1" stop-color="#1450b9"/>
+  </linearGradient></defs>
+  <rect width="48" height="48" rx="12" fill="url(#canopyBlue)"/>
+  <path d="M7 31H41" fill="none" stroke="#87d6ff" stroke-width="2.5" stroke-linecap="round"/>
+  <path d="M7 21H13L18 13L25 29L30 18L34 21H41" fill="none" stroke="#fff" stroke-width="3.1" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="7" cy="31" r="2" fill="#fff"/><circle cx="41" cy="31" r="2" fill="#fff"/>
+</svg>

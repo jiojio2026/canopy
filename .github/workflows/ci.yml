@@ -34,4 +34,4 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Frontend Trace tests
-        run: node --test tests/test_trace_frontend.cjs
+        run: node --test tests/test_trace_frontend.cjs tests/test_trace_plot.cjs

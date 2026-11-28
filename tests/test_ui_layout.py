@@ -64,9 +64,9 @@ def test_sidebar_responsiveness_and_trace_bound():
 
 
 def test_version_alignment():
-    assert "v0.5.1" in HTML
-    assert "/static/style.css?v=0.5.1" in HTML
-    assert "/static/app.js?v=0.5.1" in HTML
+    assert "v0.5.2" in HTML
+    assert "/static/style.css?v=0.5.2" in HTML
+    assert "/static/app.js?v=0.5.2" in HTML
 
 
 def test_signal_editor_actions_and_menu_exist():
@@ -140,3 +140,20 @@ def test_trace_uses_screen_space_and_custom_can_waveform_brand():
     assert '#trace .trace-pane-divider' in CSS
     assert 'flex: 1 1 auto; min-height: 180px; max-height: none' in CSS
     assert 'height: 27px; padding-block: 2px' in CSS
+
+
+def test_live_plot_is_opt_in_and_reuses_signal_decoder():
+    for token in ('id="plotToggleBtn"', 'id="tracePlot"', 'id="plotCanvas"',
+                  'id="plotSignalSelect"', 'id="plotWindow"', 'id="plotStatus"',
+                  'id="plotLegend"'):
+        assert token in HTML
+    assert '/static/plot.js?v=0.5.2' in HTML
+    assert HTML.index('/static/plot.js?v=0.5.2') < HTML.index('/static/app.js?v=0.5.2')
+    for token in ('function toggleSignalPlot()', 'function hideSignalPlot()',
+                  'globalThis.CanopyPlot?.ingest(frames)',
+                  'globalThis.CanopyPlot?.setDefinitions(signalDefinitions)',
+                  'globalThis.CanopyPlot?.clear()'):
+        assert token in JS
+    for token in ('#trace .trace-plot', '#trace .trace-plot-canvas-wrap',
+                  '#trace #plotCanvas', '#trace .trace-plot-inline-add'):
+        assert token in CSS

@@ -8,7 +8,7 @@ CANopy turns a Linux computer and a ZLG USBCANFD-200U into a local web CAN tool.
 
 ## Features
 
-The v0.5.0 interface uses a responsive sidebar, a device-status toolbar, and a Wireshark-inspired high-density Trace workbench with a compact decoded-signal table. The mobile layout keeps the original device controls and horizontally scrollable data tables.
+The v0.5.2 interface uses a responsive sidebar, a device-status toolbar, and a Wireshark-inspired high-density Trace workbench with a compact decoded-signal table. The mobile layout keeps the original device controls and horizontally scrollable data tables.
 
 
 - CAN0/CAN1 dual-channel operation
@@ -16,7 +16,7 @@ The v0.5.0 interface uses a responsive sidebar, a device-status toolbar, and a W
 - Standard/extended frames, remote frames, BRS, ESI and self reception
 - Up to 64-byte CAN FD payloads
 - Live Trace, latest-value view, rolling view and CSV export
-- Wireshark-style Trace table: compact (32 px) / standard row density, sortable headers, ID/channel/RX-TX filters, draggable column widths and hide/reorder column controls (saved to browser localStorage)
+- Wireshark-style Trace table: compact (27 px) / standard row density, sortable headers, ID/channel/RX-TX filters, draggable column widths and hide/reorder column controls (saved to browser localStorage)
 - Signal Inspector and expanded signal details use dense tables, retaining raw values, enum/bitfield labels, search and independent scrolling
 - Built-in custom signal editor: right-click a Trace frame to define bits, endian, signed/unsigned/IEEE754, Factor/Offset and unit; Enum/Bitfield state labels and fault flags; occupied-bit highlighting and JSON library import/export without a DBC
 - Message library, simulation nodes and software periodic transmission
@@ -30,7 +30,7 @@ The v0.5.0 interface uses a responsive sidebar, a device-status toolbar, and a W
 - Long-running Trace protection: at most 3,000 buffered browser frames and 1,000 displayed rows; only one HTTP snapshot in flight; WebSocket streaming pauses when Trace is hidden
 - Mock backend for UI development without hardware
 
-## Wireshark-style Trace layout (v0.5.0)
+## Wireshark-style Trace layout (v0.5.2)
 
 Use **实时 Trace** for high-density CAN/CAN FD capture.
 
@@ -174,3 +174,16 @@ Real bus behavior—especially electrical termination, bus-off recovery, high-lo
 CANopy source code is released under the [MIT License](LICENSE).
 
 Files under `vendor/official_sdk/` and `vendor/packages/` are third-party ZLG materials and are excluded from the MIT grant. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+
+## Real-time signal comparison plot (v0.5.2)
+
+Open **实时 Trace → 曲线**, select a numeric signal from the saved signal library, and click **添加**. Add **实际位置** and **目标位置** (or up to four numeric signals), or click the small **＋** beside a decoded signal in the Inspector. Use the lower-pane divider to resize the plot; closing it stops sampling and releases the chart history.
+
+- Uses the existing **decoded physical values**, hardware-anchored `timestamp_ns`, and current Trace WebSocket; no additional capture thread or network subscription. Values without a valid timestamp, failed decodes, and non-numeric definitions are skipped.
+- A single Y-axis is intentionally limited to the **same unit** and a single CAN channel. Convert `rad` to `°` in the signal definition before comparing; cross-channel hardware time alignment has not been established.
+- The status row shows **A−B** for the first two signals only when the latest timestamp gap and nearest sample gap are both at most **5 ms**. It explicitly labels cross-frame results as *approximate*, not hardware-synchronous. Different CAN IDs need not publish at exactly the same instant, so missing errors do not imply bad reception.
+- Canvas plotting runs at **at most 10 fps**, keeping up to **8,000 decoded samples per signal** (max four) and a selectable 5/10/30-second display window. Each pixel preserves a min/max envelope to keep transient peaks visible; paused and hidden panels stop accumulating samples. High-rate streams may reach the sample cap before the requested window ends.
+- This is a **tracking diagnostic**, not a calibration or timing certification. Validate position scaling, encoder direction, timestamp jitter, sensor provenance and CAN load before using a plot to make control-performance claims.
+
+For very high-rate multi-channel analysis or hours-long recording, retain server-side files and consider a native desktop viewer; the local Canvas plot intentionally stays lightweight.

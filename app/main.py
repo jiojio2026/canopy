@@ -46,7 +46,7 @@ def enqueue_live(frame):
 driver=MockDriver(frame_callback) if config.driver=="mock" or os.getenv("MOCK_CAN")=="1" else ZlgCanDriver(frame_callback)
 scheduler=SoftwareScheduler(lambda frame: send_frame(frame) if driver.status().get("opened",False) else 0)
 scheduler.sync(messages)
-app=FastAPI(title="CANopy",version="0.5.0")
+app=FastAPI(title="CANopy",version="0.5.2")
 app.mount("/static",StaticFiles(directory=str(ROOT/"static")),name="static")
 
 @app.middleware("http")
@@ -73,7 +73,7 @@ async def shutdown():
 @app.get("/")
 def index(): return FileResponse(ROOT/"static/index.html")
 @app.get("/api/version")
-def version(): return ok({"version":"0.5.0","sdk":"usbcanfd_libusb_x64_1.0.15_260827"})
+def version(): return ok({"version":"0.5.2","sdk":"usbcanfd_libusb_x64_1.0.15_260827"})
 
 def ok(data=None,message=""): return APIResult(ok=True,data=data,message=message).dict()
 def fail(e):

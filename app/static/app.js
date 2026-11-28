@@ -684,8 +684,25 @@ function collapseTraceSignalDetails() {
   expandedTraceRowKey = null;
   renderTrace(lastTraceRows);
 }
+function hideSignalPlot() {
+  globalThis.CanopyPlot?.hide();
+  $('#plotToggleBtn').setAttribute('aria-pressed', 'false');
+  $('#tracePaneDivider').hidden = $('#signalInspector').hidden;
+}
+function toggleSignalPlot() {
+  if (!globalThis.CanopyPlot) return;
+  if (globalThis.CanopyPlot.isOpen()) {
+    hideSignalPlot();
+  } else {
+    hideSignalInspector();
+    globalThis.CanopyPlot.show();
+    $('#tracePaneDivider').hidden = false;
+    $('#plotToggleBtn').setAttribute('aria-pressed', 'true');
+  }
+}
 function selectTraceFrame(frame) {
   if (!frame) return;
+  hideSignalPlot();
   selectedSignalFrame = frame;
   $('#signalInspector').hidden = false;
   $('#tracePaneDivider').hidden = false;
@@ -693,7 +710,7 @@ function selectTraceFrame(frame) {
 }
 function hideSignalInspector() {
   $('#signalInspector').hidden = true;
-  $('#tracePaneDivider').hidden = true;
+  $('#tracePaneDivider').hidden = !globalThis.CanopyPlot?.isOpen();
   selectedSignalFrame = null;
 }
 function renderSignalInspector() {
@@ -722,7 +739,7 @@ function renderSignalInspector() {
         s.display_mode === 'bitfield' ? '无活动故障' : '数值';
       return '<tr class="signal-inspector-row' +
         (s.error ? ' signal-has-error' : isActiveBitfield(s) ? ' signal-flag-active' : '') + '">' +
-        '<td class="signal-inspector-name">'+esc(s.name)+'</td>' +
+        '<td class="signal-inspector-name"><button class="trace-plot-inline-add" type="button" title="加入曲线" aria-label="绘制 '+esc(s.name)+'" data-plot-signal="'+esc(s.key)+'">＋</button>'+esc(s.name)+'</td>' +
         '<td class="signal-inspector-value" title="'+esc(signalDisplayText(s))+'">'+esc(signalDisplayText(s))+'</td>' +
         '<td class="cell-mono" title="'+esc((s.raw ?? '—')+' / '+(s.raw_hex ?? '—'))+'">'+
         esc(s.raw_hex ?? s.raw ?? '—')+'</td>'+
@@ -776,6 +793,7 @@ async function loadSignalDefinitions() {
   signalDefinitions = await api('/api/signals');
   renderSignalLibrary();
   renderSignalInspector();
+  globalThis.CanopyPlot?.setDefinitions(signalDefinitions);
 }
 async function openSignalLibrary() {
   $('#signalLibraryDialog').showModal();
@@ -1116,6 +1134,7 @@ function initTraceInspectorDivider() {
 function initializeSignalUI() {
   initTraceLayoutControls();
   initTraceInspectorDivider();
+  globalThis.CanopyPlot?.init({history: () => lastTraceRows});
   const rows = $('#traceRows');
   rows.addEventListener('click', e => {
     if (e.target.closest('[data-trace-collapse]')) {
@@ -1172,6 +1191,13 @@ function initializeSignalUI() {
     if (definition) startSignalEditor(signalEditorFrame, definition);
   });
   $('#signalSearch').addEventListener('input', renderSignalInspector);
+  $('#signalInspectorRows').addEventListener('click', e => {
+    const button = e.target.closest('[data-plot-signal]');
+    if (!button || !globalThis.CanopyPlot) return;
+    const key = button.dataset.plotSignal;
+    if (!globalThis.CanopyPlot.isOpen()) toggleSignalPlot();
+    globalThis.CanopyPlot.add(key);
+  });
   document.addEventListener('click', e => {
     if (!e.target.closest('#signalContextMenu')) closeSignalContextMenu();
   });
@@ -1250,6 +1276,7 @@ async function clearTrace() {
     $('#traceRows').replaceChildren();
     lastTraceRows = [];
     expandedTraceRowKey = null;
+    globalThis.CanopyPlot?.clear();
     $('#traceVisibleCount').textContent = '0';
     hideSignalInspector();
     await refreshTrace(true);
@@ -1262,8 +1289,9 @@ function connectWs() {
   wsSubscribed = false;
   socket.onmessage = e => {
     if (!traceIsVisible()) return;
-    // Latest mode only needs to know there are changes, not parse frame arrays.
-    if ($('#traceMode').value === 'latest') {
+    // Latest-value mode can skip JSON parsing unless the chart needs live samples.
+    const latestMode = $('#traceMode').value === 'latest';
+    if (latestMode && !globalThis.CanopyPlot?.isRecording()) {
       latestDirty = true;
       return;
     }
@@ -1271,6 +1299,8 @@ function connectWs() {
     try { msg = JSON.parse(e.data); } catch { return; }
     if (msg.type !== 'frames' || !Array.isArray(msg.frames)) return;
     const frames = msg.frames;
+    globalThis.CanopyPlot?.ingest(frames);
+    if (latestMode) { latestDirty = true; return; }
     if (frames.length >= TRACE_SCROLL_LIMIT) {
       liveFrames = frames.slice(-TRACE_SCROLL_LIMIT);
     } else {

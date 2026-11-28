@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>CANopy · CAN 总线工作台</title>
   <link rel="icon" type="image/svg+xml" href="/static/canopy-mark.svg">
-  <link rel="stylesheet" href="/static/style.css?v=0.5.1">
+  <link rel="stylesheet" href="/static/style.css?v=0.5.2">
 </head>
 <body>
 <div class="app-shell">
@@ -26,7 +26,7 @@
       <div class="sidebar-footer-title"><span class="status-pulse"></span> LOCAL WORKBENCH</div>
       <div>ZLG USBCANFD-200U</div>
       <div>Linux x86-64 · VCI ABI</div>
-      <span class="sidebar-version">v0.5.1</span>
+      <span class="sidebar-version">v0.5.2</span>
     </div>
   </aside>
   <div class="workspace">
@@ -100,6 +100,7 @@
         <button onclick="refreshTrace()">刷新</button>
         <button class="secondary" onclick="clearTrace()">清空</button>
         <a class="button secondary" href="/api/trace.csv">导出 CSV</a>
+        <button id="plotToggleBtn" type="button" class="secondary" onclick="toggleSignalPlot()" aria-pressed="false" title="对比数值信号的实时曲线">曲线</button>
         <button type="button" class="secondary" onclick="openSignalLibrary()">信号库</button>
       </div>
       <div class="trace-view-actions">
@@ -139,6 +140,23 @@
           <tbody id="signalInspectorRows"></tbody>
         </table>
       </div>
+    </div>
+    <div id="tracePlot" class="trace-plot" role="region" aria-label="实时数值信号曲线" hidden>
+      <div class="trace-plot-head">
+        <strong>数值曲线</strong>
+        <label class="trace-plot-select-label"><span class="sr-only">选择需要绘制的信号</span><select id="plotSignalSelect" aria-label="选择数值信号"><option value="">选择已定义的数值信号</option></select></label>
+        <button id="plotAdd" type="button" class="secondary">添加</button>
+        <label class="trace-plot-range-label"><span class="sr-only">曲线时间范围</span><select id="plotWindow" aria-label="曲线时间范围"><option value="5">5 s</option><option value="10" selected>10 s</option><option value="30">30 s</option></select></label>
+        <button id="plotPause" type="button" class="secondary">暂停</button>
+        <button id="plotClear" type="button" class="secondary">清空</button>
+        <button id="plotClose" type="button" class="secondary" onclick="hideSignalPlot()">关闭</button>
+      </div>
+      <div id="plotLegend" class="trace-plot-legend"></div>
+      <div class="trace-plot-canvas-wrap">
+        <canvas id="plotCanvas" aria-label="按设备时间戳绘制的数值信号曲线">浏览器需要支持 Canvas 2D。</canvas>
+        <div id="plotEmpty" class="trace-plot-empty">选择数值信号，曲线会随新报文实时更新。</div>
+      </div>
+      <div id="plotStatus" class="trace-plot-status" role="status" aria-live="polite">仅绘制已定义的数值信号。</div>
     </div>
   </article>
 </section>
@@ -252,5 +270,5 @@
     <p class="hint">你上传的 Linux x86-64 SDK Demo 使用设备类型 33，本工具默认按 33 打开；仅在失败时兼容尝试 41。内置 120Ω 只在该通道位于总线物理端点时开启。</p>
   </form>
 </dialog>
-<div id="toast"></div><script src="/static/app.js?v=0.5.1"></script>
+<div id="toast"></div><script src="/static/plot.js?v=0.5.2"></script><script src="/static/app.js?v=0.5.2"></script>
 </body></html>

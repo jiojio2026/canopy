@@ -155,5 +155,5 @@ def test_live_plot_is_opt_in_and_reuses_signal_decoder():
                   'globalThis.CanopyPlot?.clear()'):
         assert token in JS
     for token in ('#trace .trace-plot', '#trace .trace-plot-canvas-wrap',
-                  '#trace #plotCanvas', '#trace .trace-plot-inline-add'):
+                  '#trace #plotCanvas', '#trace .signal-inspector-name .trace-plot-inline-add'):
         assert token in CSS
